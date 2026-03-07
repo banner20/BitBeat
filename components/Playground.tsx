@@ -16,8 +16,8 @@ export default function Playground() {
     const [syncInitialized, setSyncInitialized] = useState(false);
 
     const { bpm, setBpm: updateGlobalBpm } = useBpm();
-    const { grid, name, toggleCell, setRandomGrid, clearGrid, renameSequence } = useActiveSequence();
     const { sequences, activeId, selectSequence, addSequence, deleteSequence } = useSequences();
+    const { grid, name, toggleCell, setRandomGrid, clearGrid, renameSequence } = useActiveSequence(activeId);
 
     const [myPresence, updateMyPresence] = useMyPresence();
     const others = useOthers();

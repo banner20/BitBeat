@@ -143,82 +143,63 @@ export const useSequences = () => {
 };
 
 // ─── useActiveSequence ─────────────────────────────────────────────────────────
-// Returns the currently active sequence's live grid + controls
-export const useActiveSequence = () => {
+// Returns the currently active sequence's live grid + controls.
+// activeId is passed in from local state (not shared Yjs).
+export const useActiveSequence = (activeId: string) => {
     const [grid, setGrid] = useState<boolean[][]>(createEmptyGrid());
     const [name, setName] = useState<string>("");
-    const [activeId, setActiveId] = useState<string>("");
 
     useEffect(() => {
-        const { ysequences: ys, yactive: ya } = initSync();
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
         let currentCellsObserver: (() => void) | null = null;
 
-        const loadSequence = (id: string) => {
-            // Unsubscribe from previous
-            if (currentCellsObserver) { currentCellsObserver(); currentCellsObserver = null; }
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
 
-            const yseq = ys.get(id);
-            if (!yseq) return;
+        const ycells = yseq.get("cells") as Y.Map<boolean>;
+        setName(yseq.get("name") ?? "Untitled");
 
-            const ycells = yseq.get("cells") as Y.Map<boolean>;
+        const rebuildGrid = () => {
+            const newGrid = createEmptyGrid();
+            ycells?.forEach((v, key) => {
+                const parts = key.split("-");
+                if (parts.length === 2) {
+                    const r = Number(parts[0]); const c = Number(parts[1]);
+                    if (r >= 0 && r < 4 && c >= 0 && c < 16) newGrid[r][c] = v;
+                }
+            });
+            setGrid(newGrid.map(row => [...row]));
+        };
+
+        rebuildGrid();
+        const seqObserver = () => {
             setName(yseq.get("name") ?? "Untitled");
-
-            const rebuildGrid = () => {
-                const newGrid = createEmptyGrid();
-                ycells?.forEach((v, key) => {
-                    const parts = key.split("-");
-                    if (parts.length === 2) {
-                        const r = Number(parts[0]); const c = Number(parts[1]);
-                        if (r >= 0 && r < 4 && c >= 0 && c < 16) newGrid[r][c] = v;
-                    }
-                });
-                setGrid(newGrid.map(row => [...row]));
-            };
-
             rebuildGrid();
-            const seqObserver = () => {
-                setName(yseq.get("name") ?? "Untitled");
-                rebuildGrid();
-            };
-            yseq.observe(seqObserver);
-            ycells?.observe(rebuildGrid);
-            currentCellsObserver = () => {
-                yseq.unobserve(seqObserver);
-                ycells?.unobserve(rebuildGrid);
-            };
         };
-
-        const onActiveChange = () => {
-            const id = ya.get("id") ?? "";
-            setActiveId(id);
-            if (id) loadSequence(id);
-        };
-
-        onActiveChange();
-        ya.observe(onActiveChange);
+        yseq.observe(seqObserver);
+        ycells?.observe(rebuildGrid);
 
         return () => {
-            ya.unobserve(onActiveChange);
-            if (currentCellsObserver) currentCellsObserver();
+            yseq.unobserve(seqObserver);
+            ycells?.unobserve(rebuildGrid);
         };
-    }, []);
+    }, [activeId]);
 
     const toggleCell = useCallback((trackIndex: number, stepIndex: number) => {
-        const { ysequences: ys, yactive: ya } = initSync();
-        const id = ya.get("id");
-        if (!id) return;
-        const yseq = ys.get(id);
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
         if (!yseq) return;
         const ycells = yseq.get("cells") as Y.Map<boolean>;
         const key = `${trackIndex}-${stepIndex}`;
         ycells.set(key, !(ycells.get(key) ?? false));
-    }, []);
+    }, [activeId]);
 
     const setGridBulk = useCallback((newGrid: boolean[][]) => {
-        const { ydoc: doc, ysequences: ys, yactive: ya } = initSync();
-        const id = ya.get("id");
-        if (!id) return;
-        const yseq = ys.get(id);
+        if (!activeId) return;
+        const { ydoc: doc, ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
         if (!yseq) return;
         const ycells = yseq.get("cells") as Y.Map<boolean>;
         doc.transact(() => {
@@ -228,18 +209,17 @@ export const useActiveSequence = () => {
                 }
             }
         });
-    }, []);
+    }, [activeId]);
 
     const clearGrid = useCallback(() => setGridBulk(createEmptyGrid()), [setGridBulk]);
 
     const renameSequence = useCallback((newName: string) => {
-        const { ysequences: ys, yactive: ya } = initSync();
-        const id = ya.get("id");
-        if (!id) return;
-        ys.get(id)?.set("name", newName);
-    }, []);
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        ys.get(activeId)?.set("name", newName);
+    }, [activeId]);
 
-    return { grid, name, activeId, toggleCell, setRandomGrid: setGridBulk, clearGrid, renameSequence };
+    return { grid, name, toggleCell, setRandomGrid: setGridBulk, clearGrid, renameSequence };
 };
 
 // ─── useBpm ───────────────────────────────────────────────────────────────────
