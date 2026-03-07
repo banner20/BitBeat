@@ -7,7 +7,7 @@ import * as Tone from "tone";
 import TopBar from "./TopBar";
 import SequencerGrid from "./SequencerGrid";
 import InstrumentDock from "./InstrumentDock";
-import { useRoom } from "@/liveblocks.config";
+import { useRoom } from "@liveblocks/react/suspense";
 
 export default function Playground() {
     const [isPlaying, setIsPlaying] = useState(false);
