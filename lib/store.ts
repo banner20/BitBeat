@@ -8,26 +8,30 @@ import { LiveblocksYjsProvider } from "@liveblocks/yjs";
 export type SequenceMeta = {
     id: string;
     name: string;
-    cells: Record<string, boolean>; // flat snapshot e.g. "0-3": true
+    cells: Record<string, boolean>;
     createdAt: number;
 };
+
+export type PianoRollNote = {
+    id: string;
+    pitch: string;        // e.g. "C2", "D#3", or "Hit" for drums
+    startStep: number;    // 0–15
+    durationSteps: number; // 1+
+};
+
+export type TrackMode = "grid" | "piano-roll";
 
 // ─── Yjs singletons ───────────────────────────────────────────────────────────
 let ydoc: Y.Doc;
 let provider: LiveblocksYjsProvider | null = null;
-
-// Top-level shared types:
-//   ysequences:     Y.Map<Y.Map<any>>  — id → { name, cells (Y.Map<boolean>), createdAt }
-//   yactive:        Y.Map<string>      — key "id" → active sequence id
-//   ysettings:      Y.Map<any>         — key "bpm"
 let ysequences: Y.Map<Y.Map<any>>;
 let yactive: Y.Map<string>;
 let ysettings: Y.Map<any>;
 
 const createEmptyGrid = () => Array.from({ length: 4 }, () => Array(16).fill(false));
 
-function newSequenceId() {
-    return `seq-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+function newId() {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function gridToFlat(grid: boolean[][]): Record<string, boolean> {
@@ -46,6 +50,11 @@ function createYSequence(name: string, grid?: boolean[][]): Y.Map<any> {
     yseq.set("name", name);
     yseq.set("cells", ycells);
     yseq.set("createdAt", Date.now());
+
+    // Piano roll data structures
+    yseq.set("trackModes", new Y.Map<string>());   // trackIdx → "grid"|"piano-roll"
+    yseq.set("pianoRolls", new Y.Map<Y.Map<any>>()); // trackIdx → Y.Map<noteId, noteObj>
+
     return yseq;
 }
 
@@ -54,14 +63,13 @@ export const initSync = (room?: any) => {
     if (!ydoc) {
         ydoc = new Y.Doc();
         ysequences = ydoc.getMap<Y.Map<any>>("sequences");
-        yactive = ydoc.getMap<string>("activeSequence"); // kept for legacy compat
+        yactive = ydoc.getMap<string>("activeSequence");
         ysettings = ydoc.getMap<any>("settings");
 
         if (!ysettings.has("bpm")) ysettings.set("bpm", 120);
 
-        // Bootstrap with a default sequence if none exists
         if (ysequences.size === 0) {
-            const id = newSequenceId();
+            const id = `seq-${newId()}`;
             ysequences.set(id, createYSequence("Beat 1"));
         }
     }
@@ -73,11 +81,9 @@ export const initSync = (room?: any) => {
     return { ydoc, provider, ysequences, yactive, ysettings };
 };
 
-// ─── useSequences ──────────────────────────────────────────────────────────────
-// Returns the synced list of all sequences + a LOCAL (per-device) active id
+// ─── useSequences ─────────────────────────────────────────────────────────────
 export const useSequences = () => {
     const [sequences, setSequences] = useState<SequenceMeta[]>([]);
-    // activeId is LOCAL only — each device picks their own sequence to view
     const [activeId, setActiveId] = useState<string>("");
 
     useEffect(() => {
@@ -89,16 +95,10 @@ export const useSequences = () => {
                 const ycells = yseq.get("cells") as Y.Map<boolean>;
                 const cells: Record<string, boolean> = {};
                 ycells?.forEach((v, k) => { if (v) cells[k] = v; });
-                list.push({
-                    id,
-                    name: yseq.get("name") ?? "Untitled",
-                    cells,
-                    createdAt: yseq.get("createdAt") ?? 0,
-                });
+                list.push({ id, name: yseq.get("name") ?? "Untitled", cells, createdAt: yseq.get("createdAt") ?? 0 });
             });
             list.sort((a, b) => a.createdAt - b.createdAt);
             setSequences(prev => {
-                // Auto-select the first sequence when sequences first arrive
                 if (prev.length === 0 && list.length > 0) {
                     setActiveId(curr => curr || list[0].id);
                 }
@@ -112,28 +112,20 @@ export const useSequences = () => {
         return () => ys.unobserveDeep(deepObserve);
     }, []);
 
-    // selectSequence only changes the local device's view — not synced
-    const selectSequence = useCallback((id: string) => {
-        setActiveId(id);
-    }, []);
+    const selectSequence = useCallback((id: string) => setActiveId(id), []);
 
     const addSequence = useCallback(() => {
         const { ydoc: doc, ysequences: ys } = initSync();
-        const id = newSequenceId();
-        doc.transact(() => {
-            ys.set(id, createYSequence(`Beat ${ys.size + 1}`));
-        });
-        // Switch this device's view to the newly created sequence
+        const id = `seq-${newId()}`;
+        doc.transact(() => { ys.set(id, createYSequence(`Beat ${ys.size + 1}`)); });
         setActiveId(id);
     }, []);
 
     const deleteSequence = useCallback((id: string) => {
         const { ydoc: doc, ysequences: ys } = initSync();
         doc.transact(() => { ys.delete(id); });
-        // If this device was viewing the deleted sequence, switch to the first remaining
         setActiveId(curr => {
             if (curr !== id) return curr;
-            // Pick first sequence that isn't the deleted one
             const remaining = Array.from(ys.keys()).filter(k => k !== id);
             return remaining[0] ?? "";
         });
@@ -142,9 +134,7 @@ export const useSequences = () => {
     return { sequences, activeId, selectSequence, addSequence, deleteSequence };
 };
 
-// ─── useActiveSequence ─────────────────────────────────────────────────────────
-// Returns the currently active sequence's live grid + controls.
-// activeId is passed in from local state (not shared Yjs).
+// ─── useActiveSequence ────────────────────────────────────────────────────────
 export const useActiveSequence = (activeId: string) => {
     const [grid, setGrid] = useState<boolean[][]>(createEmptyGrid());
     const [name, setName] = useState<string>("");
@@ -152,8 +142,6 @@ export const useActiveSequence = (activeId: string) => {
     useEffect(() => {
         if (!activeId) return;
         const { ysequences: ys } = initSync();
-        let currentCellsObserver: (() => void) | null = null;
-
         const yseq = ys.get(activeId);
         if (!yseq) return;
 
@@ -163,27 +151,18 @@ export const useActiveSequence = (activeId: string) => {
         const rebuildGrid = () => {
             const newGrid = createEmptyGrid();
             ycells?.forEach((v, key) => {
-                const parts = key.split("-");
-                if (parts.length === 2) {
-                    const r = Number(parts[0]); const c = Number(parts[1]);
-                    if (r >= 0 && r < 4 && c >= 0 && c < 16) newGrid[r][c] = v;
-                }
+                const [r, c] = key.split("-").map(Number);
+                if (r >= 0 && r < 4 && c >= 0 && c < 16) newGrid[r][c] = v;
             });
             setGrid(newGrid.map(row => [...row]));
         };
 
         rebuildGrid();
-        const seqObserver = () => {
-            setName(yseq.get("name") ?? "Untitled");
-            rebuildGrid();
-        };
+        const seqObserver = () => { setName(yseq.get("name") ?? "Untitled"); rebuildGrid(); };
         yseq.observe(seqObserver);
         ycells?.observe(rebuildGrid);
 
-        return () => {
-            yseq.unobserve(seqObserver);
-            ycells?.unobserve(rebuildGrid);
-        };
+        return () => { yseq.unobserve(seqObserver); ycells?.unobserve(rebuildGrid); };
     }, [activeId]);
 
     const toggleCell = useCallback((trackIndex: number, stepIndex: number) => {
@@ -203,11 +182,9 @@ export const useActiveSequence = (activeId: string) => {
         if (!yseq) return;
         const ycells = yseq.get("cells") as Y.Map<boolean>;
         doc.transact(() => {
-            for (let t = 0; t < 4; t++) {
-                for (let s = 0; s < 16; s++) {
+            for (let t = 0; t < 4; t++)
+                for (let s = 0; s < 16; s++)
                     ycells.set(`${t}-${s}`, newGrid[t][s]);
-                }
-            }
         });
     }, [activeId]);
 
@@ -215,11 +192,116 @@ export const useActiveSequence = (activeId: string) => {
 
     const renameSequence = useCallback((newName: string) => {
         if (!activeId) return;
-        const { ysequences: ys } = initSync();
-        ys.get(activeId)?.set("name", newName);
+        initSync().ysequences.get(activeId)?.set("name", newName);
     }, [activeId]);
 
     return { grid, name, toggleCell, setRandomGrid: setGridBulk, clearGrid, renameSequence };
+};
+
+// ─── useTrackModes ────────────────────────────────────────────────────────────
+export const useTrackModes = (activeId: string) => {
+    const [trackModes, setTrackModes] = useState<TrackMode[]>(["grid", "grid", "grid", "grid"]);
+
+    useEffect(() => {
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+
+        // Ensure trackModes map exists on older sequences
+        if (!yseq.has("trackModes")) yseq.set("trackModes", new Y.Map<string>());
+        const yModes = yseq.get("trackModes") as Y.Map<string>;
+
+        const rebuild = () => {
+            const modes: TrackMode[] = [0, 1, 2, 3].map(i => (yModes.get(String(i)) ?? "grid") as TrackMode);
+            setTrackModes(modes);
+        };
+        rebuild();
+        yModes.observe(rebuild);
+        return () => yModes.unobserve(rebuild);
+    }, [activeId]);
+
+    const setTrackMode = useCallback((trackIndex: number, mode: TrackMode) => {
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        if (!yseq.has("trackModes")) yseq.set("trackModes", new Y.Map<string>());
+        (yseq.get("trackModes") as Y.Map<string>).set(String(trackIndex), mode);
+    }, [activeId]);
+
+    return { trackModes, setTrackMode };
+};
+
+// ─── usePianoRolls ────────────────────────────────────────────────────────────
+export const usePianoRolls = (activeId: string) => {
+    // notes[trackIndex] = PianoRollNote[]
+    const [pianoRolls, setPianoRolls] = useState<PianoRollNote[][]>([[], [], [], []]);
+
+    useEffect(() => {
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+
+        if (!yseq.has("pianoRolls")) yseq.set("pianoRolls", new Y.Map<Y.Map<any>>());
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+
+        // Ensure sub-maps exist for each track
+        for (let t = 0; t < 4; t++) {
+            if (!yRolls.has(String(t))) yRolls.set(String(t), new Y.Map<any>());
+        }
+
+        const rebuild = () => {
+            const rolls: PianoRollNote[][] = [[], [], [], []];
+            for (let t = 0; t < 4; t++) {
+                const yNotes = yRolls.get(String(t)) as Y.Map<any>;
+                if (yNotes) {
+                    yNotes.forEach((note: PianoRollNote) => rolls[t].push(note));
+                    rolls[t].sort((a, b) => a.startStep - b.startStep);
+                }
+            }
+            setPianoRolls(rolls);
+        };
+        rebuild();
+        yRolls.observeDeep(rebuild);
+        return () => yRolls.unobserveDeep(rebuild);
+    }, [activeId]);
+
+    const addNote = useCallback((trackIndex: number, note: Omit<PianoRollNote, "id">) => {
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
+        if (!yNotes) return;
+        const id = `note-${newId()}`;
+        yNotes.set(id, { ...note, id });
+    }, [activeId]);
+
+    const removeNote = useCallback((trackIndex: number, noteId: string) => {
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
+        yNotes?.delete(noteId);
+    }, [activeId]);
+
+    const updateNoteDuration = useCallback((trackIndex: number, noteId: string, durationSteps: number) => {
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
+        const existing = yNotes?.get(noteId);
+        if (existing) yNotes.set(noteId, { ...existing, durationSteps });
+    }, [activeId]);
+
+    return { pianoRolls, addNote, removeNote, updateNoteDuration };
 };
 
 // ─── useBpm ───────────────────────────────────────────────────────────────────

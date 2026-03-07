@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { initAudio, startTransport, stopTransport, setBpm, setupSequencer } from "@/lib/audio";
-import { useActiveSequence, useSequences, useBpm, initSync } from "@/lib/store";
+import { useActiveSequence, useSequences, useBpm, useTrackModes, usePianoRolls, initSync } from "@/lib/store";
 import * as Tone from "tone";
 import TopBar from "./TopBar";
 import SequencerGrid from "./SequencerGrid";
@@ -18,12 +18,14 @@ export default function Playground() {
     const { bpm, setBpm: updateGlobalBpm } = useBpm();
     const { sequences, activeId, selectSequence, addSequence, deleteSequence } = useSequences();
     const { grid, name, toggleCell, setRandomGrid, clearGrid, renameSequence } = useActiveSequence(activeId);
+    const { trackModes, setTrackMode } = useTrackModes(activeId);
+    const { pianoRolls, addNote, removeNote, updateNoteDuration } = usePianoRolls(activeId);
 
     const [myPresence, updateMyPresence] = useMyPresence();
     const others = useOthers();
     const room = useRoom();
 
-    // Initialize user and broadcast which sequence we're on
+    // Initialize user presence
     useEffect(() => {
         const colors = ["#ef4444", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
         const myColor = colors[Math.floor(Math.random() * colors.length)];
@@ -31,16 +33,18 @@ export default function Playground() {
         updateMyPresence({ user: { name: myName, color: myColor, cell: null }, activeSequenceId: null });
     }, []);
 
-    // Broadcast active sequence whenever it changes
+    // Broadcast active sequence id
     useEffect(() => {
-        if (activeId) {
-            updateMyPresence({ activeSequenceId: activeId });
-        }
+        if (activeId) updateMyPresence({ activeSequenceId: activeId });
     }, [activeId]);
 
-    // Grid ref for Tone.js
+    // Refs for Tone.js (needed so callbacks always get latest values)
     const gridRef = useRef(grid);
+    const trackModesRef = useRef(trackModes);
+    const pianoRollsRef = useRef(pianoRolls);
     useEffect(() => { gridRef.current = grid; }, [grid]);
+    useEffect(() => { trackModesRef.current = trackModes; }, [trackModes]);
+    useEffect(() => { pianoRollsRef.current = pianoRolls; }, [pianoRolls]);
 
     useEffect(() => {
         initSync(room);
@@ -49,7 +53,7 @@ export default function Playground() {
 
     useEffect(() => {
         if (!syncInitialized) return;
-        setupSequencer(gridRef, (step) => setCurrentStep(step));
+        setupSequencer(gridRef, (step) => setCurrentStep(step), trackModesRef, pianoRollsRef);
     }, [syncInitialized]);
 
     useEffect(() => { setBpm(bpm); }, [bpm]);
@@ -80,17 +84,14 @@ export default function Playground() {
         });
     }, [myPresence.user]);
 
-    // Only show cursors/cells from users on the SAME sequence
-    const sameSequenceOthers = others.filter(
-        ({ presence }) => presence?.activeSequenceId === activeId
-    );
+    const sameSequenceOthers = others.filter(({ presence }) => presence?.activeSequenceId === activeId);
 
     return (
         <div
             className="flex h-screen w-full bg-zinc-950 text-white font-sans overflow-hidden relative"
             onPointerMove={handlePointerMove}
         >
-            {/* Remote cursors — only for users on same sequence */}
+            {/* Remote cursors — same-sequence only */}
             {sameSequenceOthers.map(({ connectionId, presence }) => {
                 if (!presence?.cursor || !presence?.user) return null;
                 const { x, y } = presence.cursor;
@@ -110,7 +111,6 @@ export default function Playground() {
                 );
             })}
 
-            {/* Sidebar */}
             <Sidebar
                 sequences={sequences}
                 activeId={activeId}
@@ -120,7 +120,6 @@ export default function Playground() {
                 onDelete={deleteSequence}
             />
 
-            {/* Main content */}
             <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
                 <TopBar
                     isPlaying={isPlaying}
@@ -132,13 +131,19 @@ export default function Playground() {
                     sequenceName={name}
                     onRename={renameSequence}
                 />
-                <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 overflow-auto">
+                <div className="flex-1 flex flex-col items-center justify-start p-4 sm:p-6 overflow-auto">
                     <SequencerGrid
                         grid={grid}
                         currentStep={currentStep}
                         toggleCell={toggleCell}
                         setHoveredCell={setHoveredCell}
                         others={sameSequenceOthers}
+                        trackModes={trackModes}
+                        pianoRolls={pianoRolls}
+                        onSetTrackMode={setTrackMode}
+                        onAddNote={(track, note) => addNote(track, note)}
+                        onRemoveNote={(track, id) => removeNote(track, id)}
+                        onUpdateDuration={(track, id, dur) => updateNoteDuration(track, id, dur)}
                     />
                 </div>
                 <InstrumentDock
