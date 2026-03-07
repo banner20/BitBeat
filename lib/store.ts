@@ -54,7 +54,7 @@ export const initSync = (room?: any) => {
     if (!ydoc) {
         ydoc = new Y.Doc();
         ysequences = ydoc.getMap<Y.Map<any>>("sequences");
-        yactive = ydoc.getMap<string>("activeSequence");
+        yactive = ydoc.getMap<string>("activeSequence"); // kept for legacy compat
         ysettings = ydoc.getMap<any>("settings");
 
         if (!ysettings.has("bpm")) ysettings.set("bpm", 120);
@@ -62,10 +62,7 @@ export const initSync = (room?: any) => {
         // Bootstrap with a default sequence if none exists
         if (ysequences.size === 0) {
             const id = newSequenceId();
-            ydoc.transact(() => {
-                ysequences.set(id, createYSequence("Beat 1"));
-                yactive.set("id", id);
-            });
+            ysequences.set(id, createYSequence("Beat 1"));
         }
     }
 
@@ -77,13 +74,14 @@ export const initSync = (room?: any) => {
 };
 
 // ─── useSequences ──────────────────────────────────────────────────────────────
-// Returns the list of all saved sequences and the active sequence id
+// Returns the synced list of all sequences + a LOCAL (per-device) active id
 export const useSequences = () => {
     const [sequences, setSequences] = useState<SequenceMeta[]>([]);
+    // activeId is LOCAL only — each device picks their own sequence to view
     const [activeId, setActiveId] = useState<string>("");
 
     useEffect(() => {
-        const { ysequences: ys, yactive: ya } = initSync();
+        const { ysequences: ys } = initSync();
 
         const rebuild = () => {
             const list: SequenceMeta[] = [];
@@ -99,53 +97,45 @@ export const useSequences = () => {
                 });
             });
             list.sort((a, b) => a.createdAt - b.createdAt);
-            setSequences(list);
+            setSequences(prev => {
+                // Auto-select the first sequence when sequences first arrive
+                if (prev.length === 0 && list.length > 0) {
+                    setActiveId(curr => curr || list[0].id);
+                }
+                return list;
+            });
         };
-
-        const updateActive = () => setActiveId(ya.get("id") ?? "");
 
         rebuild();
-        updateActive();
-
-        const deepObserve = (events: Y.YEvent<any>[]) => { rebuild(); };
+        const deepObserve = () => rebuild();
         ys.observeDeep(deepObserve);
-        ya.observe(updateActive);
-
-        return () => {
-            ys.unobserveDeep(deepObserve);
-            ya.unobserve(updateActive);
-        };
+        return () => ys.unobserveDeep(deepObserve);
     }, []);
 
+    // selectSequence only changes the local device's view — not synced
     const selectSequence = useCallback((id: string) => {
-        const { yactive: ya } = initSync();
-        ya.set("id", id);
+        setActiveId(id);
     }, []);
 
     const addSequence = useCallback(() => {
-        const { ydoc: doc, ysequences: ys, yactive: ya } = initSync();
+        const { ydoc: doc, ysequences: ys } = initSync();
         const id = newSequenceId();
         doc.transact(() => {
             ys.set(id, createYSequence(`Beat ${ys.size + 1}`));
-            ya.set("id", id);
         });
+        // Switch this device's view to the newly created sequence
+        setActiveId(id);
     }, []);
 
     const deleteSequence = useCallback((id: string) => {
-        const { ydoc: doc, ysequences: ys, yactive: ya } = initSync();
-        doc.transact(() => {
-            ys.delete(id);
-            // If we deleted the active one, switch to the first available
-            if (ya.get("id") === id) {
-                const first = ys.keys().next().value;
-                if (first) ya.set("id", first);
-                else {
-                    // No sequences left — create a fresh one
-                    const newId = newSequenceId();
-                    ys.set(newId, createYSequence("Beat 1"));
-                    ya.set("id", newId);
-                }
-            }
+        const { ydoc: doc, ysequences: ys } = initSync();
+        doc.transact(() => { ys.delete(id); });
+        // If this device was viewing the deleted sequence, switch to the first remaining
+        setActiveId(curr => {
+            if (curr !== id) return curr;
+            // Pick first sequence that isn't the deleted one
+            const remaining = Array.from(ys.keys()).filter(k => k !== id);
+            return remaining[0] ?? "";
         });
     }, []);
 
