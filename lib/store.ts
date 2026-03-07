@@ -1,27 +1,71 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import * as Y from "yjs";
-
-// Yjs specific definitions for Liveblocks
 import { LiveblocksYjsProvider } from "@liveblocks/yjs";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+export type SequenceMeta = {
+    id: string;
+    name: string;
+    cells: Record<string, boolean>; // flat snapshot e.g. "0-3": true
+    createdAt: number;
+};
+
+// ─── Yjs singletons ───────────────────────────────────────────────────────────
+let ydoc: Y.Doc;
+let provider: LiveblocksYjsProvider | null = null;
+
+// Top-level shared types:
+//   ysequences:     Y.Map<Y.Map<any>>  — id → { name, cells (Y.Map<boolean>), createdAt }
+//   yactive:        Y.Map<string>      — key "id" → active sequence id
+//   ysettings:      Y.Map<any>         — key "bpm"
+let ysequences: Y.Map<Y.Map<any>>;
+let yactive: Y.Map<string>;
+let ysettings: Y.Map<any>;
 
 const createEmptyGrid = () => Array.from({ length: 4 }, () => Array(16).fill(false));
 
-let ydoc: Y.Doc;
-let ygridCells: Y.Map<boolean>;
-let ybpm: Y.Map<any>;
-let provider: LiveblocksYjsProvider | null = null;
+function newSequenceId() {
+    return `seq-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
 
-// The provider is now passed in from the component level since it requires the Liveblocks Room context
+function gridToFlat(grid: boolean[][]): Record<string, boolean> {
+    const flat: Record<string, boolean> = {};
+    grid.forEach((row, r) => row.forEach((v, c) => { if (v) flat[`${r}-${c}`] = true; }));
+    return flat;
+}
+
+function createYSequence(name: string, grid?: boolean[][]): Y.Map<any> {
+    const yseq = new Y.Map<any>();
+    const ycells = new Y.Map<boolean>();
+    if (grid) {
+        const flat = gridToFlat(grid);
+        Object.entries(flat).forEach(([k, v]) => ycells.set(k, v));
+    }
+    yseq.set("name", name);
+    yseq.set("cells", ycells);
+    yseq.set("createdAt", Date.now());
+    return yseq;
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
 export const initSync = (room?: any) => {
     if (!ydoc) {
         ydoc = new Y.Doc();
-        ygridCells = ydoc.getMap<boolean>("gridCells");
-        ybpm = ydoc.getMap("settings");
+        ysequences = ydoc.getMap<Y.Map<any>>("sequences");
+        yactive = ydoc.getMap<string>("activeSequence");
+        ysettings = ydoc.getMap<any>("settings");
 
-        if (!ybpm.has("bpm")) {
-            ybpm.set("bpm", 120);
+        if (!ysettings.has("bpm")) ysettings.set("bpm", 120);
+
+        // Bootstrap with a default sequence if none exists
+        if (ysequences.size === 0) {
+            const id = newSequenceId();
+            ydoc.transact(() => {
+                ysequences.set(id, createYSequence("Beat 1"));
+                yactive.set("id", id);
+            });
         }
     }
 
@@ -29,88 +73,197 @@ export const initSync = (room?: any) => {
         provider = new LiveblocksYjsProvider(room, ydoc);
     }
 
-    return { ydoc, provider, ygridCells, ybpm };
+    return { ydoc, provider, ysequences, yactive, ysettings };
 };
 
-export const useGrid = () => {
-    const [grid, setGrid] = useState<boolean[][]>(createEmptyGrid());
+// ─── useSequences ──────────────────────────────────────────────────────────────
+// Returns the list of all saved sequences and the active sequence id
+export const useSequences = () => {
+    const [sequences, setSequences] = useState<SequenceMeta[]>([]);
+    const [activeId, setActiveId] = useState<string>("");
 
     useEffect(() => {
-        const { ygridCells: activeGridCells } = initSync();
+        const { ysequences: ys, yactive: ya } = initSync();
 
-        const updateGrid = () => {
-            const newGrid = createEmptyGrid();
-            activeGridCells.forEach((value, key) => {
-                const parts = key.split("-");
-                if (parts.length === 2) {
-                    const r = Number(parts[0]);
-                    const c = Number(parts[1]);
-                    if (r >= 0 && r < 4 && c >= 0 && c < 16) {
-                        newGrid[r][c] = value;
-                    }
-                }
+        const rebuild = () => {
+            const list: SequenceMeta[] = [];
+            ys.forEach((yseq, id) => {
+                const ycells = yseq.get("cells") as Y.Map<boolean>;
+                const cells: Record<string, boolean> = {};
+                ycells?.forEach((v, k) => { if (v) cells[k] = v; });
+                list.push({
+                    id,
+                    name: yseq.get("name") ?? "Untitled",
+                    cells,
+                    createdAt: yseq.get("createdAt") ?? 0,
+                });
             });
-            // Force React to recognize the nested array update by spreading
-            setGrid(newGrid.map(row => [...row]));
+            list.sort((a, b) => a.createdAt - b.createdAt);
+            setSequences(list);
         };
 
-        updateGrid();
-        activeGridCells.observe(updateGrid);
+        const updateActive = () => setActiveId(ya.get("id") ?? "");
+
+        rebuild();
+        updateActive();
+
+        const deepObserve = (events: Y.YEvent<any>[]) => { rebuild(); };
+        ys.observeDeep(deepObserve);
+        ya.observe(updateActive);
 
         return () => {
-            activeGridCells.unobserve(updateGrid);
+            ys.unobserveDeep(deepObserve);
+            ya.unobserve(updateActive);
         };
     }, []);
 
-    const toggleCell = (trackIndex: number, stepIndex: number) => {
-        const { ygridCells: activeGridCells } = initSync();
-        const key = `${trackIndex}-${stepIndex}`;
-        const currentValue = activeGridCells.get(key) || false;
-        activeGridCells.set(key, !currentValue);
-    };
+    const selectSequence = useCallback((id: string) => {
+        const { yactive: ya } = initSync();
+        ya.set("id", id);
+    }, []);
 
-    const setRandomGrid = (newGrid: boolean[][]) => {
-        const { ydoc: activeDoc, ygridCells: activeGridCells } = initSync();
-        activeDoc.transact(() => {
-            for (let t = 0; t < 4; t++) {
-                for (let s = 0; s < 16; s++) {
-                    const key = `${t}-${s}`;
-                    if (activeGridCells.get(key) !== newGrid[t][s]) {
-                        activeGridCells.set(key, newGrid[t][s]);
-                    }
+    const addSequence = useCallback(() => {
+        const { ydoc: doc, ysequences: ys, yactive: ya } = initSync();
+        const id = newSequenceId();
+        doc.transact(() => {
+            ys.set(id, createYSequence(`Beat ${ys.size + 1}`));
+            ya.set("id", id);
+        });
+    }, []);
+
+    const deleteSequence = useCallback((id: string) => {
+        const { ydoc: doc, ysequences: ys, yactive: ya } = initSync();
+        doc.transact(() => {
+            ys.delete(id);
+            // If we deleted the active one, switch to the first available
+            if (ya.get("id") === id) {
+                const first = ys.keys().next().value;
+                if (first) ya.set("id", first);
+                else {
+                    // No sequences left — create a fresh one
+                    const newId = newSequenceId();
+                    ys.set(newId, createYSequence("Beat 1"));
+                    ya.set("id", newId);
                 }
             }
         });
-    }
+    }, []);
 
-    const clearGrid = () => setRandomGrid(createEmptyGrid());
-
-    return { grid, toggleCell, setRandomGrid, clearGrid };
+    return { sequences, activeId, selectSequence, addSequence, deleteSequence };
 };
 
-export const useBpm = () => {
-    // Cannot access ybpm synchronously at module load anymore
-    const [bpm, setBpmState] = useState<number>(120);
+// ─── useActiveSequence ─────────────────────────────────────────────────────────
+// Returns the currently active sequence's live grid + controls
+export const useActiveSequence = () => {
+    const [grid, setGrid] = useState<boolean[][]>(createEmptyGrid());
+    const [name, setName] = useState<string>("");
+    const [activeId, setActiveId] = useState<string>("");
 
     useEffect(() => {
-        const { ybpm: activeBpm } = initSync();
-        setBpmState((activeBpm.get("bpm") as number) || 120);
+        const { ysequences: ys, yactive: ya } = initSync();
+        let currentCellsObserver: (() => void) | null = null;
 
-        const observer = () => {
-            setBpmState(activeBpm.get("bpm") as number);
+        const loadSequence = (id: string) => {
+            // Unsubscribe from previous
+            if (currentCellsObserver) { currentCellsObserver(); currentCellsObserver = null; }
+
+            const yseq = ys.get(id);
+            if (!yseq) return;
+
+            const ycells = yseq.get("cells") as Y.Map<boolean>;
+            setName(yseq.get("name") ?? "Untitled");
+
+            const rebuildGrid = () => {
+                const newGrid = createEmptyGrid();
+                ycells?.forEach((v, key) => {
+                    const parts = key.split("-");
+                    if (parts.length === 2) {
+                        const r = Number(parts[0]); const c = Number(parts[1]);
+                        if (r >= 0 && r < 4 && c >= 0 && c < 16) newGrid[r][c] = v;
+                    }
+                });
+                setGrid(newGrid.map(row => [...row]));
+            };
+
+            rebuildGrid();
+            const seqObserver = () => {
+                setName(yseq.get("name") ?? "Untitled");
+                rebuildGrid();
+            };
+            yseq.observe(seqObserver);
+            ycells?.observe(rebuildGrid);
+            currentCellsObserver = () => {
+                yseq.unobserve(seqObserver);
+                ycells?.unobserve(rebuildGrid);
+            };
         };
-        activeBpm.observe(observer);
+
+        const onActiveChange = () => {
+            const id = ya.get("id") ?? "";
+            setActiveId(id);
+            if (id) loadSequence(id);
+        };
+
+        onActiveChange();
+        ya.observe(onActiveChange);
+
         return () => {
-            activeBpm.unobserve(observer);
+            ya.unobserve(onActiveChange);
+            if (currentCellsObserver) currentCellsObserver();
         };
     }, []);
 
-    const setBpm = (newBpm: number) => {
-        const { ybpm: activeBpm } = initSync();
-        activeBpm.set("bpm", newBpm);
-    };
+    const toggleCell = useCallback((trackIndex: number, stepIndex: number) => {
+        const { ysequences: ys, yactive: ya } = initSync();
+        const id = ya.get("id");
+        if (!id) return;
+        const yseq = ys.get(id);
+        if (!yseq) return;
+        const ycells = yseq.get("cells") as Y.Map<boolean>;
+        const key = `${trackIndex}-${stepIndex}`;
+        ycells.set(key, !(ycells.get(key) ?? false));
+    }, []);
 
-    return { bpm, setBpm };
+    const setGridBulk = useCallback((newGrid: boolean[][]) => {
+        const { ydoc: doc, ysequences: ys, yactive: ya } = initSync();
+        const id = ya.get("id");
+        if (!id) return;
+        const yseq = ys.get(id);
+        if (!yseq) return;
+        const ycells = yseq.get("cells") as Y.Map<boolean>;
+        doc.transact(() => {
+            for (let t = 0; t < 4; t++) {
+                for (let s = 0; s < 16; s++) {
+                    ycells.set(`${t}-${s}`, newGrid[t][s]);
+                }
+            }
+        });
+    }, []);
+
+    const clearGrid = useCallback(() => setGridBulk(createEmptyGrid()), [setGridBulk]);
+
+    const renameSequence = useCallback((newName: string) => {
+        const { ysequences: ys, yactive: ya } = initSync();
+        const id = ya.get("id");
+        if (!id) return;
+        ys.get(id)?.set("name", newName);
+    }, []);
+
+    return { grid, name, activeId, toggleCell, setRandomGrid: setGridBulk, clearGrid, renameSequence };
 };
 
+// ─── useBpm ───────────────────────────────────────────────────────────────────
+export const useBpm = () => {
+    const [bpm, setBpmState] = useState<number>(120);
 
+    useEffect(() => {
+        const { ysettings: s } = initSync();
+        setBpmState((s.get("bpm") as number) || 120);
+        const obs = () => setBpmState(s.get("bpm") as number);
+        s.observe(obs);
+        return () => s.unobserve(obs);
+    }, []);
+
+    const setBpm = (newBpm: number) => { initSync().ysettings.set("bpm", newBpm); };
+    return { bpm, setBpm };
+};
