@@ -1,7 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { LiveblocksProvider, RoomProvider, ClientSideSuspense } from "@liveblocks/react/suspense";
+import { LiveblocksProvider, ClientSideSuspense } from "@liveblocks/react/suspense";
+import { RoomProvider } from "@/liveblocks.config";
 import { useEffect, useState } from "react";
 
 const Playground = dynamic(() => import("@/components/Playground"), {
@@ -31,7 +32,7 @@ export default function ClientWrapper() {
         }
     }, [roomId]);
 
-    if (isMissingKey) {
+    if (isMissingKey && process.env.NODE_ENV === "production") {
         return (
             <div className="flex flex-col min-h-screen items-center justify-center bg-zinc-950 text-white font-mono p-8 text-center max-w-2xl mx-auto space-y-6">
                 <h1 className="text-3xl font-bold text-red-500">Liveblocks Connection Refused</h1>
@@ -41,7 +42,7 @@ export default function ClientWrapper() {
                 <div className="bg-zinc-900 border border-zinc-700 p-6 rounded-xl text-left w-full space-y-4 shadow-xl">
                     <h2 className="text-xl font-semibold mb-2">How to fix this instantly:</h2>
                     <ol className="list-decimal list-inside space-y-3 text-zinc-400">
-                        <li>Go to <a href="https://liveblocks.io" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">liveblocks.io</a> and sign up for a free account.</li>
+                        <li>Go to <a href="https://liveblocks.io" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline" onClick={(e) => e.stopPropagation()}>liveblocks.io</a> and sign up for a free account.</li>
                         <li>Create a new project and navigate to the <strong>API Keys</strong> tab.</li>
                         <li>Copy your <strong>Public Key</strong> (it starts with <code className="bg-zinc-800 px-1 py-0.5 rounded text-zinc-300">pk_</code>).</li>
                         <li>Go to your <strong>Vercel Dashboard</strong> &rarr; Project Settings &rarr; Environment Variables.</li>
@@ -55,7 +56,7 @@ export default function ClientWrapper() {
 
     return (
         <LiveblocksProvider publicApiKey={apiKey}>
-            <RoomProvider id={roomId}>
+            <RoomProvider id={roomId} initialPresence={{ cursor: null, user: null }}>
                 <ClientSideSuspense fallback={
                     <div className="flex flex-col space-y-4 min-h-screen items-center justify-center bg-zinc-950 text-white font-mono">
                         <div className="w-8 h-8 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin"></div>

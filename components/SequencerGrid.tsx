@@ -1,4 +1,4 @@
-export default function SequencerGrid({ grid, currentStep, toggleCell, setHoveredCell, users }: any) {
+export default function SequencerGrid({ grid, currentStep, toggleCell, setHoveredCell, others }: any) {
     const tracks = ["Kick", "Snare", "HiHat", "Bass"];
 
     return (
@@ -12,12 +12,12 @@ export default function SequencerGrid({ grid, currentStep, toggleCell, setHovere
                         {track.map((isActive: boolean, stepIndex: number) => {
                             const isPlaying = currentStep === stepIndex;
 
-                            // Find if any user is hovering this cell
-                            const hoveringUsers = users.filter((u: any) =>
-                                u.user?.cell?.track === trackIndex && u.user?.cell?.step === stepIndex
+                            // Find if any other user is hovering this cell
+                            const hoveringOthers = others.filter(({ presence }: any) =>
+                                presence?.user?.cell?.track === trackIndex && presence?.user?.cell?.step === stepIndex
                             );
 
-                            const hoverColor = hoveringUsers.length > 0 ? hoveringUsers[0].user.color : null;
+                            const hoverColor = hoveringOthers.length > 0 ? hoveringOthers[0].presence.user.color : null;
 
                             // Visual styling logic
                             const isBeatMarker = stepIndex % 4 === 0;

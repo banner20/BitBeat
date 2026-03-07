@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useRef } from "react";
 import { initAudio, startTransport, stopTransport, setBpm, setupSequencer } from "@/lib/audio";
-import { useGrid, useBpm, useAwareness, initSync } from "@/lib/store";
+import { useGrid, useBpm, initSync } from "@/lib/store";
 import * as Tone from "tone";
 import TopBar from "./TopBar";
 import SequencerGrid from "./SequencerGrid";
 import InstrumentDock from "./InstrumentDock";
-import { useRoom } from "@liveblocks/react/suspense";
+import { useRoom, useMyPresence, useUpdateMyPresence, useOthers } from "@/liveblocks.config";
 
 export default function Playground() {
     const [isPlaying, setIsPlaying] = useState(false);
@@ -15,9 +15,25 @@ export default function Playground() {
     const [syncInitialized, setSyncInitialized] = useState(false);
     const { grid, toggleCell, setRandomGrid, clearGrid } = useGrid();
     const { bpm, setBpm: updateGlobalBpm } = useBpm();
-    const { users, localColor, localName, setHoveredCell, setCursor } = useAwareness();
 
+    const [myPresence, updateMyPresence] = useMyPresence();
+    const others = useOthers();
     const room = useRoom();
+
+    // Initialize presence
+    useEffect(() => {
+        const colors = ["#ef4444", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
+        const myColor = colors[Math.floor(Math.random() * colors.length)];
+        const myName = `User ${Math.floor(Math.random() * 1000)}`;
+
+        updateMyPresence({
+            user: {
+                name: myName,
+                color: myColor,
+                cell: null
+            }
+        });
+    }, []);
 
     // We need a ref to the latest grid to pass to Tone's sequencer
     const gridRef = useRef(grid);
@@ -63,7 +79,18 @@ export default function Playground() {
     };
 
     const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-        setCursor(e.clientX, e.clientY);
+        updateMyPresence({
+            cursor: { x: e.clientX, y: e.clientY }
+        });
+    };
+
+    const setHoveredCell = (track: number | null, step: number | null) => {
+        updateMyPresence({
+            user: {
+                ...myPresence.user!,
+                cell: track !== null && step !== null ? { track, step } : null
+            }
+        });
     };
 
     return (
@@ -72,23 +99,23 @@ export default function Playground() {
             onPointerMove={handlePointerMove}
         >
             {/* Live Multiplayer Cursors */}
-            {users.map((state: any, i: number) => {
-                if (!state.user || !state.user.cursor || state.user.name === localName) return null;
-                const { x, y } = state.user.cursor;
+            {others.map(({ connectionId, presence }) => {
+                if (!presence || !presence.cursor || !presence.user) return null;
+                const { x, y } = presence.cursor;
                 return (
                     <div
-                        key={i}
+                        key={connectionId}
                         className="pointer-events-none fixed z-[100] flex flex-col items-start top-0 left-0"
                         style={{ transform: `translate(${x}px, ${y}px)`, transition: "transform 0.05s linear" }}
                     >
                         <svg width="18" height="24" viewBox="0 0 16 23" fill="none" xmlns="http://www.w3.org/2000/svg" className="drop-shadow-md" style={{ transformOrigin: 'top left', transform: 'rotate(-20deg)' }}>
-                            <path d="M1.38531 1.70183L13.8853 14.2018C14.4988 14.8153 14.0645 15.8631 13.1969 15.8631H8.5V20.5C8.5 21.3284 7.82843 22 7 22H5.5C4.67157 22 4 21.3284 4 20.5V15.8631H0.966952C0.091395 15.8631 -0.347575 14.8023 0.274391 14.1804L1.38531 1.70183Z" fill={state.user.color} stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                            <path d="M1.38531 1.70183L13.8853 14.2018C14.4988 14.8153 14.0645 15.8631 13.1969 15.8631H8.5V20.5C8.5 21.3284 7.82843 22 7 22H5.5C4.67157 22 4 21.3284 4 20.5V15.8631H0.966952C0.091395 15.8631 -0.347575 14.8023 0.274391 14.1804L1.38531 1.70183Z" fill={presence.user.color} stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
                         </svg>
                         <div
                             className="px-2 py-1 rounded-md text-[10px] font-bold shadow-md ml-3 mt-1 whitespace-nowrap"
-                            style={{ backgroundColor: state.user.color, color: "#fff" }}
+                            style={{ backgroundColor: presence.user.color, color: "#fff" }}
                         >
-                            {state.user.name}
+                            {presence.user.name}
                         </div>
                     </div>
                 );
@@ -99,9 +126,8 @@ export default function Playground() {
                 togglePlay={togglePlay}
                 bpm={bpm}
                 setBpm={updateGlobalBpm}
-                users={users}
-                localColor={localColor}
-                localName={localName}
+                others={others}
+                myPresence={myPresence}
             />
             <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 overflow-auto max-w-7xl mx-auto w-full">
                 <SequencerGrid
@@ -109,7 +135,7 @@ export default function Playground() {
                     currentStep={currentStep}
                     toggleCell={toggleCell}
                     setHoveredCell={setHoveredCell}
-                    users={users}
+                    others={others}
                 />
             </div>
             <InstrumentDock

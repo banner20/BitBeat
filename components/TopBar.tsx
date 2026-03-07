@@ -1,6 +1,8 @@
 import { Play, Square, Settings } from "lucide-react";
 
-export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, users, localColor, localName }: any) {
+export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, others, myPresence }: any) {
+    const localUser = myPresence?.user;
+
     return (
         <header className="flex h-[72px] w-full items-center justify-between bg-zinc-900 border-b border-zinc-800 px-6 shrink-0 shadow-sm z-50">
             <div className="flex items-center gap-4">
@@ -40,27 +42,29 @@ export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, users, loca
             </div>
 
             <div className="flex items-center gap-1.5 ml-auto">
-                {users.map((state: any, index: number) => {
-                    if (!state.user || state.user.name === localName) return null;
+                {others.map(({ connectionId, presence }: any) => {
+                    if (!presence?.user) return null;
 
                     return (
                         <div
-                            key={index}
+                            key={connectionId}
                             className="flex items-center justify-center h-8 w-8 rounded-full border-2 border-zinc-900 shadow-sm transition-transform hover:scale-110 text-[10px] font-bold text-white cursor-help select-none"
-                            style={{ backgroundColor: state.user.color }}
-                            title={state.user.name}
+                            style={{ backgroundColor: presence.user.color }}
+                            title={presence.user.name}
                         >
-                            {state.user.name.split(' ')[1]}
+                            {presence.user.name.split(' ')[1]}
                         </div>
                     );
                 })}
-                <div
-                    className="relative flex items-center justify-center h-8 w-8 rounded-full border-2 border-white shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-transform hover:scale-110 ml-2 text-[10px] font-bold text-white cursor-help select-none"
-                    style={{ backgroundColor: localColor }}
-                    title={`${localName || 'You'}`}
-                >
-                    {localName ? localName.split(' ')[1] : ''}
-                </div>
+                {localUser && (
+                    <div
+                        className="relative flex items-center justify-center h-8 w-8 rounded-full border-2 border-white shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-transform hover:scale-110 ml-2 text-[10px] font-bold text-white cursor-help select-none"
+                        style={{ backgroundColor: localUser.color }}
+                        title={`${localUser.name} (You)`}
+                    >
+                        {localUser.name.split(' ')[1]}
+                    </div>
+                )}
             </div>
         </header>
     );
