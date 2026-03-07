@@ -24,6 +24,19 @@ export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, users, loca
                     />
                     <span className="text-zinc-500 font-medium tracking-wide">BPM</span>
                 </div>
+
+                <button
+                    onClick={() => {
+                        if (typeof window !== "undefined") {
+                            navigator.clipboard.writeText(window.location.href);
+                            alert("Session link copied to clipboard! Send it to a friend to collaborate in real-time.");
+                        }
+                    }}
+                    className="hidden sm:flex items-center gap-2 ml-4 px-3 py-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/40 border border-indigo-500/50 text-indigo-300 text-sm font-semibold transition-all shadow-[0_0_10px_rgba(99,102,241,0.1)] hover:shadow-[0_0_15px_rgba(99,102,241,0.3)]"
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                    Invite Friends
+                </button>
             </div>
 
             <div className="flex items-center gap-1.5 ml-auto">
