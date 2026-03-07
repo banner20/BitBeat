@@ -23,25 +23,30 @@ export default function Playground() {
     const others = useOthers();
     const room = useRoom();
 
-    // Initialize presence
+    // Initialize user and broadcast which sequence we're on
     useEffect(() => {
         const colors = ["#ef4444", "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
         const myColor = colors[Math.floor(Math.random() * colors.length)];
         const myName = `User ${Math.floor(Math.random() * 1000)}`;
-        updateMyPresence({ user: { name: myName, color: myColor, cell: null } });
+        updateMyPresence({ user: { name: myName, color: myColor, cell: null }, activeSequenceId: null });
     }, []);
 
-    // Grid ref for Tone.js sequencer
+    // Broadcast active sequence whenever it changes
+    useEffect(() => {
+        if (activeId) {
+            updateMyPresence({ activeSequenceId: activeId });
+        }
+    }, [activeId]);
+
+    // Grid ref for Tone.js
     const gridRef = useRef(grid);
     useEffect(() => { gridRef.current = grid; }, [grid]);
 
-    // Initialize Yjs with Liveblocks room
     useEffect(() => {
         initSync(room);
         setSyncInitialized(true);
     }, [room]);
 
-    // Setup the Tone.js sequencer engine
     useEffect(() => {
         if (!syncInitialized) return;
         setupSequencer(gridRef, (step) => setCurrentStep(step));
@@ -75,13 +80,18 @@ export default function Playground() {
         });
     }, [myPresence.user]);
 
+    // Only show cursors/cells from users on the SAME sequence
+    const sameSequenceOthers = others.filter(
+        ({ presence }) => presence?.activeSequenceId === activeId
+    );
+
     return (
         <div
             className="flex h-screen w-full bg-zinc-950 text-white font-sans overflow-hidden relative"
             onPointerMove={handlePointerMove}
         >
-            {/* Remote user cursors */}
-            {others.map(({ connectionId, presence }) => {
+            {/* Remote cursors — only for users on same sequence */}
+            {sameSequenceOthers.map(({ connectionId, presence }) => {
                 if (!presence?.cursor || !presence?.user) return null;
                 const { x, y } = presence.cursor;
                 return (
@@ -104,12 +114,13 @@ export default function Playground() {
             <Sidebar
                 sequences={sequences}
                 activeId={activeId}
+                others={others}
                 onSelect={selectSequence}
                 onAdd={addSequence}
                 onDelete={deleteSequence}
             />
 
-            {/* Main content area */}
+            {/* Main content */}
             <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
                 <TopBar
                     isPlaying={isPlaying}
@@ -127,7 +138,7 @@ export default function Playground() {
                         currentStep={currentStep}
                         toggleCell={toggleCell}
                         setHoveredCell={setHoveredCell}
-                        others={others}
+                        others={sameSequenceOthers}
                     />
                 </div>
                 <InstrumentDock

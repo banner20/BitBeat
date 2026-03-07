@@ -29,7 +29,7 @@ export default function ClientWrapper() {
     }, []);
 
     return (
-        <RoomProvider id={roomId} initialPresence={{ cursor: null, user: null }}>
+        <RoomProvider id={roomId} initialPresence={{ cursor: null, activeSequenceId: null, user: null }}>
             <ClientSideSuspense fallback={
                 <div className="flex flex-col space-y-4 min-h-screen items-center justify-center bg-zinc-950 text-white font-mono">
                     <div className="w-8 h-8 rounded-full border-4 border-emerald-500 border-t-transparent animate-spin"></div>

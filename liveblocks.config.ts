@@ -7,6 +7,7 @@ const client = createClient({
 
 type Presence = {
     cursor: { x: number; y: number } | null;
+    activeSequenceId: string | null;
     user: {
         name: string;
         color: string;
