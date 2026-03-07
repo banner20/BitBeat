@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import * as Y from "yjs";
-import { WebsocketProvider } from "y-websocket";
 
 // Yjs specific definitions for Liveblocks
 import { LiveblocksYjsProvider } from "@liveblocks/yjs";
