@@ -6,7 +6,7 @@ let isInitialized = false;
 export let kickPlayer: Tone.Player;
 export let snarePlayer: Tone.Player;
 export let hihatPlayer: Tone.Player;
-export let bassSynth: Tone.Synth;
+export let bassSynth: Tone.PolySynth<Tone.Synth>;
 
 let masterBus: Tone.Gain;
 let sequence: Tone.Sequence | null = null;
@@ -21,7 +21,7 @@ export const initAudio = async () => {
     snarePlayer = new Tone.Player("/sounds/snare.mp3").connect(masterBus);
     hihatPlayer = new Tone.Player("/sounds/hihat.mp3").connect(masterBus);
 
-    bassSynth = new Tone.Synth({
+    bassSynth = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "square" },
         envelope: { attack: 0.05, decay: 0.2, sustain: 0.2, release: 0.5 },
     }).connect(masterBus);

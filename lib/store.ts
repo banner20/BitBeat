@@ -188,14 +188,50 @@ export const useActiveSequence = (activeId: string) => {
         });
     }, [activeId]);
 
-    const clearGrid = useCallback(() => setGridBulk(createEmptyGrid()), [setGridBulk]);
+    const clearAll = useCallback(() => {
+        if (!activeId) return;
+        const { ydoc: doc, ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        const ycells = yseq.get("cells") as Y.Map<boolean>;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        doc.transact(() => {
+            for (let t = 0; t < 4; t++) {
+                for (let s = 0; s < 16; s++) {
+                    ycells.set(`${t}-${s}`, false);
+                }
+                const yNotes = yRolls?.get(String(t)) as Y.Map<any>;
+                if (yNotes) {
+                    Array.from(yNotes.keys()).forEach(k => yNotes.delete(k));
+                }
+            }
+        });
+    }, [activeId]);
+
+    const clearTrack = useCallback((trackIndex: number) => {
+        if (!activeId) return;
+        const { ydoc: doc, ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        const ycells = yseq.get("cells") as Y.Map<boolean>;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        doc.transact(() => {
+            for (let s = 0; s < 16; s++) {
+                ycells.set(`${trackIndex}-${s}`, false);
+            }
+            const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
+            if (yNotes) {
+                Array.from(yNotes.keys()).forEach(k => yNotes.delete(k));
+            }
+        });
+    }, [activeId]);
 
     const renameSequence = useCallback((newName: string) => {
         if (!activeId) return;
         initSync().ysequences.get(activeId)?.set("name", newName);
     }, [activeId]);
 
-    return { grid, name, toggleCell, setRandomGrid: setGridBulk, clearGrid, renameSequence };
+    return { grid, name, toggleCell, setRandomGrid: setGridBulk, clearAll, clearTrack, renameSequence };
 };
 
 // ─── useTrackModes ────────────────────────────────────────────────────────────
@@ -232,6 +268,8 @@ export const useTrackModes = (activeId: string) => {
 
     return { trackModes, setTrackMode };
 };
+
+let pianoRollClipboard: Omit<PianoRollNote, "id">[] | null = null;
 
 // ─── usePianoRolls ────────────────────────────────────────────────────────────
 export const usePianoRolls = (activeId: string) => {
@@ -301,7 +339,39 @@ export const usePianoRolls = (activeId: string) => {
         if (existing) yNotes.set(noteId, { ...existing, durationSteps });
     }, [activeId]);
 
-    return { pianoRolls, addNote, removeNote, updateNoteDuration };
+    const copyPattern = useCallback((trackIndex: number) => {
+        pianoRollClipboard = pianoRolls[trackIndex].map(n => ({
+            pitch: n.pitch, startStep: n.startStep, durationSteps: n.durationSteps
+        }));
+    }, [pianoRolls]);
+
+    const pastePattern = useCallback((trackIndex: number) => {
+        if (!activeId || !pianoRollClipboard) return;
+        const { ydoc, ysequences } = initSync();
+        const yseq = ysequences.get(activeId);
+        if (!yseq) return;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
+        if (!yNotes) return;
+
+        ydoc.transact(() => {
+            Array.from(yNotes.keys()).forEach(k => yNotes.delete(k));
+            pianoRollClipboard!.forEach(note => {
+                const id = `note-${newId()}`;
+                yNotes.set(id, { ...note, id });
+            });
+        });
+    }, [activeId]);
+
+    return {
+        pianoRolls,
+        addNote,
+        removeNote,
+        updateNoteDuration,
+        copyPattern,
+        pastePattern,
+        hasClipboard: pianoRollClipboard !== null && pianoRollClipboard.length > 0
+    };
 };
 
 // ─── useBpm ───────────────────────────────────────────────────────────────────

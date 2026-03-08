@@ -19,11 +19,16 @@ type Props = {
     onAddNote: (track: number, note: Omit<PianoRollNote, "id">) => void;
     onRemoveNote: (track: number, id: string) => void;
     onUpdateDuration: (track: number, id: string, dur: number) => void;
+    onCopyPattern: (track: number) => void;
+    onPastePattern: (track: number) => void;
+    hasClipboard: boolean;
+    onClearTrack: (track: number) => void;
 };
 
 export default function SequencerGrid({
     grid, currentStep, toggleCell, setHoveredCell, others,
-    trackModes, pianoRolls, onSetTrackMode, onAddNote, onRemoveNote, onUpdateDuration
+    trackModes, pianoRolls, onSetTrackMode, onAddNote, onRemoveNote, onUpdateDuration,
+    onCopyPattern, onPastePattern, hasClipboard, onClearTrack
 }: Props) {
     const [openTrack, setOpenTrack] = useState<number | null>(null);
 
@@ -44,7 +49,19 @@ export default function SequencerGrid({
                     return (
                         <div key={trackIndex} className="flex items-center gap-2 py-0.5">
                             {/* Left label area */}
-                            <div className="flex items-center gap-1.5 w-28 shrink-0 justify-end">
+                            <div className="flex items-center gap-1.5 w-32 shrink-0 justify-end">
+                                {/* Clear Track Button */}
+                                <button
+                                    onClick={() => onClearTrack(trackIndex)}
+                                    title="Clear Track"
+                                    className="flex items-center justify-center w-5 h-5 text-zinc-600 hover:text-red-400 transition-colors"
+                                >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M3 6h18"></path>
+                                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                    </svg>
+                                </button>
                                 {/* Piano icon toggle */}
                                 <button
                                     onClick={() => {
@@ -123,10 +140,10 @@ export default function SequencerGrid({
                                                 onMouseLeave={() => setHoveredCell(null, null)}
                                                 onClick={() => toggleCell(trackIndex, stepIndex)}
                                                 className={`h-7 w-5 sm:w-6 rounded-md transition-all duration-75 border ${isActive
-                                                        ? "border-transparent"
-                                                        : beatMarker
-                                                            ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700"
-                                                            : "bg-zinc-900 border-zinc-800 hover:bg-zinc-800"
+                                                    ? "border-transparent"
+                                                    : beatMarker
+                                                        ? "bg-zinc-800 border-zinc-700 hover:bg-zinc-700"
+                                                        : "bg-zinc-900 border-zinc-800 hover:bg-zinc-800"
                                                     } ${isPlaying && isActive ? "scale-110 brightness-125" : ""}`}
                                                 style={{ backgroundColor: bgColor, boxShadow: shadow }}
                                             />
@@ -176,6 +193,9 @@ export default function SequencerGrid({
                     onAddNote={(note) => onAddNote(openTrack, note)}
                     onRemoveNote={(id) => onRemoveNote(openTrack, id)}
                     onUpdateDuration={(id, dur) => onUpdateDuration(openTrack, id, dur)}
+                    onCopy={() => onCopyPattern(openTrack)}
+                    onPaste={() => onPastePattern(openTrack)}
+                    hasClipboard={hasClipboard}
                 />
             )}
         </div>

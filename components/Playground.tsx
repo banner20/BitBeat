@@ -17,9 +17,9 @@ export default function Playground() {
 
     const { bpm, setBpm: updateGlobalBpm } = useBpm();
     const { sequences, activeId, selectSequence, addSequence, deleteSequence } = useSequences();
-    const { grid, name, toggleCell, setRandomGrid, clearGrid, renameSequence } = useActiveSequence(activeId);
+    const { grid, name, toggleCell, setRandomGrid, clearAll, clearTrack, renameSequence } = useActiveSequence(activeId);
     const { trackModes, setTrackMode } = useTrackModes(activeId);
-    const { pianoRolls, addNote, removeNote, updateNoteDuration } = usePianoRolls(activeId);
+    const { pianoRolls, addNote, removeNote, updateNoteDuration, copyPattern, pastePattern, hasClipboard } = usePianoRolls(activeId);
 
     const [myPresence, updateMyPresence] = useMyPresence();
     const others = useOthers();
@@ -144,6 +144,10 @@ export default function Playground() {
                         onAddNote={(track, note) => addNote(track, note)}
                         onRemoveNote={(track, id) => removeNote(track, id)}
                         onUpdateDuration={(track, id, dur) => updateNoteDuration(track, id, dur)}
+                        onCopyPattern={(track) => copyPattern(track)}
+                        onPastePattern={(track) => pastePattern(track)}
+                        hasClipboard={hasClipboard}
+                        onClearTrack={(track) => clearTrack(track)}
                     />
                 </div>
                 <InstrumentDock
@@ -154,7 +158,7 @@ export default function Playground() {
                         });
                         setRandomGrid(newGrid);
                     }}
-                    onClear={clearGrid}
+                    onClear={clearAll}
                 />
             </div>
         </div>
