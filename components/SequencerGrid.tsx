@@ -17,7 +17,7 @@ type Props = {
     trackModes: TrackMode[];
     pianoRolls: PianoRollNote[][];
     onSetTrackMode: (track: number, mode: TrackMode) => void;
-    onAddNote: (track: number, note: Omit<PianoRollNote, "id">) => void;
+    onAddNote: (track: number, note: Omit<PianoRollNote, "id">) => string;
     onRemoveNote: (track: number, id: string) => void;
     onUpdateDuration: (track: number, id: string, dur: number) => void;
     onUpdateNote: (track: number, id: string, updates: Partial<PianoRollNote>) => void;

@@ -68,6 +68,8 @@ export const initSync = (room?: any) => {
         ysettings = ydoc.getMap<any>("settings");
 
         if (!ysettings.has("bpm")) ysettings.set("bpm", 120);
+        if (!ysettings.has("scaleKey")) ysettings.set("scaleKey", "C");
+        if (!ysettings.has("scaleType")) ysettings.set("scaleType", "Major");
 
         if (ysequences.size === 0) {
             const id = `seq-${newId()}`;
@@ -357,15 +359,16 @@ export const usePianoRolls = (activeId: string) => {
     }, [activeId]);
 
     const addNote = useCallback((trackIndex: number, note: Omit<PianoRollNote, "id">) => {
-        if (!activeId) return;
+        if (!activeId) return "";
         const { ysequences: ys } = initSync();
         const yseq = ys.get(activeId);
-        if (!yseq) return;
+        if (!yseq) return "";
         const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
         const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
-        if (!yNotes) return;
+        if (!yNotes) return "";
         const id = `note-${newId()}`;
         yNotes.set(id, { ...note, id });
+        return id;
     }, [activeId]);
 
     const removeNote = useCallback((trackIndex: number, noteId: string) => {
@@ -436,18 +439,47 @@ export const usePianoRolls = (activeId: string) => {
     };
 };
 
-// ─── useBpm ───────────────────────────────────────────────────────────────────
 export const useBpm = () => {
     const [bpm, setBpmState] = useState<number>(120);
 
     useEffect(() => {
-        const { ysettings: s } = initSync();
-        setBpmState((s.get("bpm") as number) || 120);
-        const obs = () => setBpmState(s.get("bpm") as number);
-        s.observe(obs);
-        return () => s.unobserve(obs);
+        const { ysettings } = initSync();
+        const update = () => setBpmState(ysettings.get("bpm") as number ?? 120);
+        update();
+        ysettings.observe(update);
+        return () => ysettings.unobserve(update);
     }, []);
 
-    const setBpm = (newBpm: number) => { initSync().ysettings.set("bpm", newBpm); };
+    const setBpm = useCallback((newBpm: number) => {
+        initSync().ysettings.set("bpm", newBpm);
+    }, []);
+
     return { bpm, setBpm };
+};
+
+// ─── useGlobalScale ───────────────────────────────────────────────────────────
+export const useGlobalScale = () => {
+    const [scaleKey, setScaleKeyState] = useState<string>("C");
+    const [scaleType, setScaleTypeState] = useState<string>("Major");
+
+    useEffect(() => {
+        const { ysettings } = initSync();
+        const update = () => {
+            setScaleKeyState(ysettings.get("scaleKey") as string ?? "C");
+            setScaleTypeState(ysettings.get("scaleType") as string ?? "Major");
+        };
+        update();
+        ysettings.observe(update);
+        return () => ysettings.unobserve(update);
+    }, []);
+
+    const setScaleKey = useCallback((newKey: string) => {
+        initSync().ysettings.set("scaleKey", newKey);
+    }, []);
+
+    const setScaleType = useCallback((newType: string) => {
+        initSync().ysettings.set("scaleType", newType);
+    }, []);
+
+    return { scaleKey, scaleType, setScaleKey, setScaleType };
 };

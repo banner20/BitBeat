@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
-import { PianoRollNote } from "@/lib/store";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { PianoRollNote, useGlobalScale } from "@/lib/store";
 import { MousePointer2, Pencil } from "lucide-react";
 
 // ─── Pitch definitions ────────────────────────────────────────────────────────
@@ -20,6 +20,15 @@ function octave(pitch: string) { return pitch.slice(-1); }
 
 const DRUM_PITCHES = ["Hit"];
 
+const SCALE_KEYS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+const getScaleNotes = (key: string, type: string) => {
+    const startIdx = SCALE_KEYS.indexOf(key);
+    if (startIdx === -1) return new Set<string>();
+    const intervals = type === "Major" ? [0, 2, 4, 5, 7, 9, 11] : [0, 2, 3, 5, 7, 8, 10];
+    return new Set(intervals.map(i => SCALE_KEYS[(startIdx + i) % 12]));
+};
+
 // ─── Track config ─────────────────────────────────────────────────────────────
 const TRACK_COLORS: Record<number, string> = {
     0: "#ef4444", // Kick - red
@@ -32,7 +41,7 @@ type Props = {
     trackIndex: number;
     trackName: string;
     notes: PianoRollNote[];
-    onAddNote: (note: Omit<PianoRollNote, "id">) => void;
+    onAddNote: (note: Omit<PianoRollNote, "id">) => string;
     onRemoveNote: (id: string) => void;
     onUpdateDuration: (id: string, durationSteps: number) => void;
     onUpdateNote: (id: string, updates: Partial<PianoRollNote>) => void;
@@ -47,23 +56,34 @@ export default function PianoRoll({ trackIndex, trackName, notes, stepCount, onA
     const pitches = isDrum ? DRUM_PITCHES : BASS_PITCHES;
     const color = TRACK_COLORS[trackIndex] ?? "#6366f1";
 
+    const { scaleKey, scaleType, setScaleKey, setScaleType } = useGlobalScale();
+    const [scaleMode, setScaleMode] = useState<"off" | "highlight" | "fold">("off");
+
+    const scaleNotes = useMemo(() => isDrum ? null : getScaleNotes(scaleKey, scaleType), [isDrum, scaleKey, scaleType]);
+
+    const displayPitches = useMemo(() => {
+        if (isDrum || scaleMode !== "fold") return pitches;
+        return pitches.filter(p => scaleNotes!.has(noteName(p)));
+    }, [isDrum, scaleMode, pitches, scaleNotes]);
+
     const scrollRef = useRef<HTMLDivElement>(null);
     const draggingNote = useRef<{ id: string; startX: number; origDuration: number } | null>(null);
     const [draggingId, setDraggingId] = useState<string | null>(null);
 
     const [tool, setTool] = useState<"pointer" | "pen">("pen");
     const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+    const [selectionBox, setSelectionBox] = useState<{ startX: number, startY: number, endX: number, endY: number } | null>(null);
 
     // Auto-scroll to C3 on mount
     useEffect(() => {
         if (!isDrum && scrollRef.current) {
-            const c3Index = pitches.indexOf("C3");
+            const c3Index = displayPitches.indexOf("C3");
             if (c3Index !== -1) {
                 const rowHeight = 20;
                 scrollRef.current.scrollTop = (c3Index * rowHeight) - (220 / 2) + (rowHeight / 2);
             }
         }
-    }, [isDrum, pitches]);
+    }, [isDrum, displayPitches]);
 
     // Handle delete key
     useEffect(() => {
@@ -161,6 +181,35 @@ export default function PianoRoll({ trackIndex, trackName, notes, stepCount, onA
                     </button>
                 </div>
 
+                {!isDrum && (
+                    <div className="flex items-center gap-1 ml-4 border-l border-zinc-700 pl-4 h-full">
+                        <select
+                            value={scaleKey}
+                            onChange={e => setScaleKey(e.target.value)}
+                            className="bg-zinc-800 text-zinc-300 text-[10px] font-bold uppercase rounded px-1 py-0.5 border border-zinc-700 outline-none"
+                        >
+                            {SCALE_KEYS.map(k => <option key={k} value={k}>{k}</option>)}
+                        </select>
+                        <select
+                            value={scaleType}
+                            onChange={e => setScaleType(e.target.value)}
+                            className="bg-zinc-800 text-zinc-300 text-[10px] font-bold uppercase rounded px-1 py-0.5 border border-zinc-700 outline-none"
+                        >
+                            <option value="Major">Major</option>
+                            <option value="Minor">Minor</option>
+                        </select>
+                        <select
+                            value={scaleMode}
+                            onChange={e => setScaleMode(e.target.value as any)}
+                            className="bg-zinc-800 text-zinc-300 text-[10px] font-bold uppercase rounded px-1 py-0.5 border border-zinc-700 outline-none ml-1"
+                        >
+                            <option value="off">Scale: Off</option>
+                            <option value="highlight">Highlight</option>
+                            <option value="fold">Fold</option>
+                        </select>
+                    </div>
+                )}
+
                 <span className="text-[10px] text-zinc-600 ml-auto hidden sm:block">
                     {tool === "pen" ? "click = add/remove · drag right edge = extend" : "click = select · drag = move · backspace = delete"}
                 </span>
@@ -170,14 +219,17 @@ export default function PianoRoll({ trackIndex, trackName, notes, stepCount, onA
             <div ref={scrollRef} className="flex overflow-y-auto overflow-x-auto relative" style={{ maxHeight: isDrum ? "56px" : "260px" }}>
                 {/* Piano keys column */}
                 <div className="flex flex-col shrink-0 border-r border-zinc-800 sticky left-0 z-20 bg-zinc-950" style={{ width: isDrum ? 56 : 48 }}>
-                    {pitches.map(pitch => {
+                    {displayPitches.map(pitch => {
                         const black = isDrum ? false : isBlack(pitch);
                         const name = isDrum ? pitch : noteName(pitch);
                         const oct = isDrum ? "" : octave(pitch);
+                        const inScale = isDrum || !scaleNotes ? true : scaleNotes.has(name);
                         return (
                             <div
                                 key={pitch}
-                                className={`flex items-center justify-end pr-1 text-[9px] font-bold shrink-0 border-b border-zinc-800/40 ${black ? "bg-zinc-800 text-zinc-500" : "bg-zinc-900 text-zinc-500"
+                                className={`flex items-center justify-end pr-1 text-[9px] font-bold shrink-0 border-b border-zinc-800/40 ${scaleMode === "highlight" && !inScale
+                                    ? "bg-zinc-950 text-zinc-700"
+                                    : (black ? "bg-zinc-800 text-zinc-500" : "bg-zinc-900 text-zinc-500")
                                     } ${name === "C" ? "border-b border-zinc-600 text-zinc-300" : ""}`}
                                 style={{ height: isDrum ? 32 : 20 }}
                             >
@@ -188,10 +240,72 @@ export default function PianoRoll({ trackIndex, trackName, notes, stepCount, onA
                 </div>
 
                 {/* Note grid */}
-                <div className="flex flex-col flex-1 min-w-max">
-                    {pitches.map(pitch => {
+                <div
+                    className="flex flex-col flex-1 min-w-max relative"
+                    onMouseDown={(e) => {
+                        if (tool === "pointer") {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const y = e.clientY - rect.top;
+                            setSelectionBox({ startX: x, startY: y, endX: x, endY: y });
+
+                            const onMove = (ev: MouseEvent) => {
+                                const currX = ev.clientX - rect.left;
+                                const currY = ev.clientY - rect.top;
+                                setSelectionBox(prev => prev ? { ...prev, endX: currX, endY: currY } : null);
+                            };
+
+                            const onUp = (ev: MouseEvent) => {
+                                setSelectionBox(prev => {
+                                    if (prev) {
+                                        const minX = Math.min(prev.startX, prev.endX);
+                                        const maxX = Math.max(prev.startX, prev.endX);
+                                        const minY = Math.min(prev.startY, prev.endY);
+                                        const maxY = Math.max(prev.startY, prev.endY);
+
+                                        // Calculate intersecting notes
+                                        const newSelected = new Set(ev.shiftKey || e.shiftKey ? selectedNoteIds : []);
+                                        notes.forEach(n => {
+                                            const nLeft = n.startStep * 28;
+                                            const nRight = nLeft + n.durationSteps * 28;
+                                            const pitchIdx = displayPitches.indexOf(n.pitch);
+                                            if (pitchIdx === -1) return; // Hidden by fold
+
+                                            const nTop = pitchIdx * (isDrum ? 32 : 20);
+                                            const nBottom = nTop + (isDrum ? 32 : 20);
+
+                                            if (nLeft < maxX && nRight > minX && nTop < maxY && nBottom > minY) {
+                                                newSelected.add(n.id);
+                                            }
+                                        });
+                                        setSelectedNoteIds(newSelected);
+                                    }
+                                    return null;
+                                });
+                                window.removeEventListener("mousemove", onMove);
+                                window.removeEventListener("mouseup", onUp);
+                            };
+
+                            window.addEventListener("mousemove", onMove);
+                            window.addEventListener("mouseup", onUp);
+                        }
+                    }}
+                >
+                    {selectionBox && (
+                        <div
+                            className="absolute border border-blue-500 bg-blue-500/20 pointer-events-none z-50"
+                            style={{
+                                left: Math.min(selectionBox.startX, selectionBox.endX),
+                                top: Math.min(selectionBox.startY, selectionBox.endY),
+                                width: Math.abs(selectionBox.endX - selectionBox.startX),
+                                height: Math.abs(selectionBox.endY - selectionBox.startY)
+                            }}
+                        />
+                    )}
+                    {displayPitches.map(pitch => {
                         const black = isDrum ? false : isBlack(pitch);
                         const isC = !isDrum && noteName(pitch) === "C";
+                        const inScale = isDrum || !scaleNotes ? true : scaleNotes.has(noteName(pitch));
                         return (
                             <div
                                 key={pitch}
@@ -206,7 +320,9 @@ export default function PianoRoll({ trackIndex, trackName, notes, stepCount, onA
                                             key={s}
                                             onMouseDown={() => handleCellMouseDown(pitch, s)}
                                             className={`shrink-0 border-r cursor-pointer transition-colors ${beatMarker ? "border-zinc-600" : "border-zinc-800/30"
-                                                } ${black ? "bg-zinc-900/80 hover:bg-zinc-700/60" : "bg-zinc-950 hover:bg-zinc-800/60"
+                                                } ${scaleMode === "highlight" && !inScale
+                                                    ? "bg-zinc-950"
+                                                    : (black ? "bg-zinc-900/80 hover:bg-zinc-700/60" : "bg-zinc-950 hover:bg-zinc-800/60")
                                                 }`}
                                             style={{ width: 28 }}
                                         />
@@ -240,27 +356,48 @@ export default function PianoRoll({ trackIndex, trackName, notes, stepCount, onA
                                                     if (tool === "pen") {
                                                         onRemoveNote(note.id);
                                                     } else {
-                                                        const newSet = new Set(e.shiftKey ? selectedNoteIds : []);
-                                                        if (newSet.has(note.id)) newSet.delete(note.id);
-                                                        else newSet.add(note.id);
-                                                        setSelectedNoteIds(newSet);
+                                                        let targetNoteIds = new Set(selectedNoteIds);
+                                                        if (!targetNoteIds.has(note.id)) {
+                                                            targetNoteIds = new Set([note.id]);
+                                                            setSelectedNoteIds(targetNoteIds);
+                                                        }
+
+                                                        // Handle Ctrl/Cmd Duplicate
+                                                        if (e.ctrlKey || e.metaKey) {
+                                                            const dupIds = new Set<string>();
+                                                            notes.forEach(n => {
+                                                                if (targetNoteIds.has(n.id)) {
+                                                                    const dupId = onAddNote({
+                                                                        pitch: n.pitch,
+                                                                        startStep: n.startStep,
+                                                                        durationSteps: n.durationSteps
+                                                                    });
+                                                                    if (dupId) dupIds.add(dupId);
+                                                                }
+                                                            });
+                                                            targetNoteIds = dupIds;
+                                                            setSelectedNoteIds(dupIds);
+                                                        }
 
                                                         const startX = e.clientX;
                                                         const startY = e.clientY;
-                                                        const startStep = note.startStep;
-                                                        const startPitchIdx = pitches.indexOf(note.pitch);
+                                                        const initialNotes = notes.filter(n => targetNoteIds.has(n.id)).map(n => ({ ...n, origPitchIdx: displayPitches.indexOf(n.pitch) }));
 
                                                         const onMove = (ev: MouseEvent) => {
                                                             const deltaSteps = Math.round((ev.clientX - startX) / 28);
                                                             const deltaPitches = Math.round((ev.clientY - startY) / (isDrum ? 32 : 20));
 
-                                                            let newStep = startStep + deltaSteps;
-                                                            newStep = Math.max(0, Math.min(newStep, stepCount - note.durationSteps));
+                                                            initialNotes.forEach(orig => {
+                                                                if (orig.origPitchIdx === -1) return; // Hidden node
 
-                                                            let newPitchIdx = startPitchIdx + deltaPitches;
-                                                            newPitchIdx = Math.max(0, Math.min(newPitchIdx, pitches.length - 1));
+                                                                let newStep = orig.startStep + deltaSteps;
+                                                                newStep = Math.max(0, Math.min(newStep, stepCount - orig.durationSteps));
 
-                                                            onUpdateNote(note.id, { startStep: newStep, pitch: pitches[newPitchIdx] });
+                                                                let newPitchIdx = orig.origPitchIdx + deltaPitches;
+                                                                newPitchIdx = Math.max(0, Math.min(newPitchIdx, displayPitches.length - 1));
+
+                                                                onUpdateNote(orig.id, { startStep: newStep, pitch: displayPitches[newPitchIdx] });
+                                                            });
                                                         };
 
                                                         const onUp = () => {
