@@ -41,11 +41,12 @@ export const setupSequencer = (
     gridStore: { current: boolean[][] },
     onStep: (step: number) => void,
     trackModesStore: { current: TrackMode[] },
-    pianoRollsStore: { current: PianoRollNote[][] }
+    pianoRollsStore: { current: PianoRollNote[][] },
+    stepCountStore: { current: number }
 ) => {
     if (sequence) sequence.dispose();
 
-    const steps = Array.from({ length: 16 }, (_, i) => i);
+    const steps = Array.from({ length: stepCountStore.current }, (_, i) => i);
     const stepDuration = Tone.Time("16n").toSeconds();
 
     sequence = new Tone.Sequence((time, stepIndex) => {

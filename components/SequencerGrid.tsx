@@ -9,6 +9,7 @@ const TRACK_COLORS = ["#ef4444", "#f59e0b", "#06b6d4", "#8b5cf6"];
 
 type Props = {
     grid: boolean[][];
+    stepCount: number;
     currentStep: number;
     toggleCell: (track: number, step: number) => void;
     setHoveredCell: (track: number | null, step: number | null) => void;
@@ -19,6 +20,7 @@ type Props = {
     onAddNote: (track: number, note: Omit<PianoRollNote, "id">) => void;
     onRemoveNote: (track: number, id: string) => void;
     onUpdateDuration: (track: number, id: string, dur: number) => void;
+    onUpdateNote: (track: number, id: string, updates: Partial<PianoRollNote>) => void;
     onCopyPattern: (track: number) => void;
     onPastePattern: (track: number) => void;
     hasClipboard: boolean;
@@ -26,8 +28,8 @@ type Props = {
 };
 
 export default function SequencerGrid({
-    grid, currentStep, toggleCell, setHoveredCell, others,
-    trackModes, pianoRolls, onSetTrackMode, onAddNote, onRemoveNote, onUpdateDuration,
+    grid, stepCount, currentStep, toggleCell, setHoveredCell, others,
+    trackModes, pianoRolls, onSetTrackMode, onAddNote, onRemoveNote, onUpdateDuration, onUpdateNote,
     onCopyPattern, onPastePattern, hasClipboard, onClearTrack
 }: Props) {
     const [openTrack, setOpenTrack] = useState<number | null>(null);
@@ -158,11 +160,11 @@ export default function SequencerGrid({
                                     className="flex gap-1.5 bg-zinc-950 p-2 rounded-xl border shadow-inner"
                                     style={{ borderColor: color + "40" }}
                                 >
-                                    {Array.from({ length: 16 }, (_, stepIndex) => {
+                                    {Array.from({ length: stepCount }, (_, stepIndex) => {
+                                        const isPlaying = currentStep === stepIndex;
                                         const hasNote = (pianoRolls[trackIndex] ?? []).some(n =>
                                             stepIndex >= n.startStep && stepIndex < n.startStep + n.durationSteps
                                         );
-                                        const isPlaying = currentStep === stepIndex;
                                         return (
                                             <div
                                                 key={stepIndex}
@@ -189,10 +191,12 @@ export default function SequencerGrid({
                 <PianoRoll
                     trackIndex={openTrack}
                     trackName={TRACK_NAMES[openTrack]}
+                    stepCount={stepCount}
                     notes={pianoRolls[openTrack] ?? []}
                     onAddNote={(note) => onAddNote(openTrack, note)}
                     onRemoveNote={(id) => onRemoveNote(openTrack, id)}
                     onUpdateDuration={(id, dur) => onUpdateDuration(openTrack, id, dur)}
+                    onUpdateNote={(id, updates) => onUpdateNote(openTrack, id, updates)}
                     onCopy={() => onCopyPattern(openTrack)}
                     onPaste={() => onPastePattern(openTrack)}
                     hasClipboard={hasClipboard}

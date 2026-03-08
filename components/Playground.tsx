@@ -17,9 +17,9 @@ export default function Playground() {
 
     const { bpm, setBpm: updateGlobalBpm } = useBpm();
     const { sequences, activeId, selectSequence, addSequence, deleteSequence } = useSequences();
-    const { grid, name, toggleCell, setRandomGrid, clearAll, clearTrack, renameSequence } = useActiveSequence(activeId);
+    const { grid, name, stepCount, toggleCell, setRandomGrid, clearAll, clearTrack, doublePatternLength, renameSequence } = useActiveSequence(activeId);
     const { trackModes, setTrackMode } = useTrackModes(activeId);
-    const { pianoRolls, addNote, removeNote, updateNoteDuration, copyPattern, pastePattern, hasClipboard } = usePianoRolls(activeId);
+    const { pianoRolls, addNote, removeNote, updateNoteDuration, updateNote, copyPattern, pastePattern, hasClipboard } = usePianoRolls(activeId);
 
     const [myPresence, updateMyPresence] = useMyPresence();
     const others = useOthers();
@@ -42,9 +42,11 @@ export default function Playground() {
     const gridRef = useRef(grid);
     const trackModesRef = useRef(trackModes);
     const pianoRollsRef = useRef(pianoRolls);
+    const stepCountRef = useRef(stepCount);
     useEffect(() => { gridRef.current = grid; }, [grid]);
     useEffect(() => { trackModesRef.current = trackModes; }, [trackModes]);
     useEffect(() => { pianoRollsRef.current = pianoRolls; }, [pianoRolls]);
+    useEffect(() => { stepCountRef.current = stepCount; }, [stepCount]);
 
     useEffect(() => {
         initSync(room);
@@ -53,8 +55,8 @@ export default function Playground() {
 
     useEffect(() => {
         if (!syncInitialized) return;
-        setupSequencer(gridRef, (step) => setCurrentStep(step), trackModesRef, pianoRollsRef);
-    }, [syncInitialized]);
+        setupSequencer(gridRef, (step) => setCurrentStep(step), trackModesRef, pianoRollsRef, stepCountRef);
+    }, [syncInitialized, stepCount]);
 
     useEffect(() => { setBpm(bpm); }, [bpm]);
 
@@ -130,10 +132,12 @@ export default function Playground() {
                     myPresence={myPresence}
                     sequenceName={name}
                     onRename={renameSequence}
+                    onDoublePattern={doublePatternLength}
                 />
                 <div className="flex-1 flex flex-col items-center justify-start p-4 sm:p-6 overflow-auto">
                     <SequencerGrid
                         grid={grid}
+                        stepCount={stepCount}
                         currentStep={currentStep}
                         toggleCell={toggleCell}
                         setHoveredCell={setHoveredCell}
@@ -144,6 +148,7 @@ export default function Playground() {
                         onAddNote={(track, note) => addNote(track, note)}
                         onRemoveNote={(track, id) => removeNote(track, id)}
                         onUpdateDuration={(track, id, dur) => updateNoteDuration(track, id, dur)}
+                        onUpdateNote={(track, id, updates) => updateNote(track, id, updates)}
                         onCopyPattern={(track) => copyPattern(track)}
                         onPastePattern={(track) => pastePattern(track)}
                         hasClipboard={hasClipboard}
@@ -154,7 +159,7 @@ export default function Playground() {
                     onRandomize={() => {
                         const newGrid = Array.from({ length: 4 }, (_, t) => {
                             const probs = [0.4, 0.2, 0.7, 0.3];
-                            return Array.from({ length: 16 }, () => Math.random() < probs[t]);
+                            return Array.from({ length: stepCount }, () => Math.random() < probs[t]);
                         });
                         setRandomGrid(newGrid);
                     }}

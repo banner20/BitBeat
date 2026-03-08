@@ -28,7 +28,7 @@ let ysequences: Y.Map<Y.Map<any>>;
 let yactive: Y.Map<string>;
 let ysettings: Y.Map<any>;
 
-const createEmptyGrid = () => Array.from({ length: 4 }, () => Array(16).fill(false));
+const createEmptyGrid = (steps: number = 16) => Array.from({ length: 4 }, () => Array(steps).fill(false));
 
 function newId() {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -50,6 +50,7 @@ function createYSequence(name: string, grid?: boolean[][]): Y.Map<any> {
     yseq.set("name", name);
     yseq.set("cells", ycells);
     yseq.set("createdAt", Date.now());
+    yseq.set("stepCount", 16);
 
     // Piano roll data structures
     yseq.set("trackModes", new Y.Map<string>());   // trackIdx → "grid"|"piano-roll"
@@ -136,8 +137,9 @@ export const useSequences = () => {
 
 // ─── useActiveSequence ────────────────────────────────────────────────────────
 export const useActiveSequence = (activeId: string) => {
-    const [grid, setGrid] = useState<boolean[][]>(createEmptyGrid());
+    const [grid, setGrid] = useState<boolean[][]>(createEmptyGrid(16));
     const [name, setName] = useState<string>("");
+    const [stepCount, setStepCount] = useState<number>(16);
 
     useEffect(() => {
         if (!activeId) return;
@@ -148,17 +150,26 @@ export const useActiveSequence = (activeId: string) => {
         const ycells = yseq.get("cells") as Y.Map<boolean>;
         setName(yseq.get("name") ?? "Untitled");
 
+        if (!yseq.has("stepCount")) yseq.set("stepCount", 16);
+        const currentSteps = yseq.get("stepCount") as number ?? 16;
+        setStepCount(currentSteps);
+
         const rebuildGrid = () => {
-            const newGrid = createEmptyGrid();
+            const steps = yseq.get("stepCount") as number ?? 16;
+            const newGrid = createEmptyGrid(steps);
             ycells?.forEach((v, key) => {
                 const [r, c] = key.split("-").map(Number);
-                if (r >= 0 && r < 4 && c >= 0 && c < 16) newGrid[r][c] = v;
+                if (r >= 0 && r < 4 && c >= 0 && c < steps) newGrid[r][c] = v;
             });
             setGrid(newGrid.map(row => [...row]));
         };
 
         rebuildGrid();
-        const seqObserver = () => { setName(yseq.get("name") ?? "Untitled"); rebuildGrid(); };
+        const seqObserver = () => {
+            setName(yseq.get("name") ?? "Untitled");
+            setStepCount(yseq.get("stepCount") as number ?? 16);
+            rebuildGrid();
+        };
         yseq.observe(seqObserver);
         ycells?.observe(rebuildGrid);
 
@@ -181,9 +192,10 @@ export const useActiveSequence = (activeId: string) => {
         const yseq = ys.get(activeId);
         if (!yseq) return;
         const ycells = yseq.get("cells") as Y.Map<boolean>;
+        const steps = yseq.get("stepCount") as number ?? 16;
         doc.transact(() => {
             for (let t = 0; t < 4; t++)
-                for (let s = 0; s < 16; s++)
+                for (let s = 0; s < steps; s++)
                     ycells.set(`${t}-${s}`, newGrid[t][s]);
         });
     }, [activeId]);
@@ -195,9 +207,10 @@ export const useActiveSequence = (activeId: string) => {
         if (!yseq) return;
         const ycells = yseq.get("cells") as Y.Map<boolean>;
         const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const steps = yseq.get("stepCount") as number ?? 16;
         doc.transact(() => {
             for (let t = 0; t < 4; t++) {
-                for (let s = 0; s < 16; s++) {
+                for (let s = 0; s < steps; s++) {
                     ycells.set(`${t}-${s}`, false);
                 }
                 const yNotes = yRolls?.get(String(t)) as Y.Map<any>;
@@ -215,8 +228,9 @@ export const useActiveSequence = (activeId: string) => {
         if (!yseq) return;
         const ycells = yseq.get("cells") as Y.Map<boolean>;
         const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const steps = yseq.get("stepCount") as number ?? 16;
         doc.transact(() => {
-            for (let s = 0; s < 16; s++) {
+            for (let s = 0; s < steps; s++) {
                 ycells.set(`${trackIndex}-${s}`, false);
             }
             const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
@@ -226,12 +240,48 @@ export const useActiveSequence = (activeId: string) => {
         });
     }, [activeId]);
 
+    const doublePatternLength = useCallback(() => {
+        if (!activeId) return;
+        const { ydoc: doc, ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        const ycells = yseq.get("cells") as Y.Map<boolean>;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const currentSteps = yseq.get("stepCount") as number ?? 16;
+        const newSteps = currentSteps * 2;
+
+        doc.transact(() => {
+            yseq.set("stepCount", newSteps);
+            // Copy grid cells
+            for (let t = 0; t < 4; t++) {
+                for (let s = 0; s < currentSteps; s++) {
+                    const val = ycells.get(`${t}-${s}`);
+                    if (val) ycells.set(`${t}-${s + currentSteps}`, true);
+                }
+            }
+            // Copy piano roll notes
+            for (let t = 0; t < 4; t++) {
+                const yNotes = yRolls?.get(String(t)) as Y.Map<any>;
+                if (yNotes) {
+                    const notesToCopy: PianoRollNote[] = [];
+                    yNotes.forEach((note: PianoRollNote) => {
+                        if (note.startStep < currentSteps) notesToCopy.push(note);
+                    });
+                    notesToCopy.forEach(note => {
+                        const id = `note-${newId()}`;
+                        yNotes.set(id, { ...note, id, startStep: note.startStep + currentSteps });
+                    });
+                }
+            }
+        });
+    }, [activeId]);
+
     const renameSequence = useCallback((newName: string) => {
         if (!activeId) return;
         initSync().ysequences.get(activeId)?.set("name", newName);
     }, [activeId]);
 
-    return { grid, name, toggleCell, setRandomGrid: setGridBulk, clearAll, clearTrack, renameSequence };
+    return { grid, name, stepCount, toggleCell, setRandomGrid: setGridBulk, clearAll, clearTrack, doublePatternLength, renameSequence };
 };
 
 // ─── useTrackModes ────────────────────────────────────────────────────────────
@@ -339,6 +389,17 @@ export const usePianoRolls = (activeId: string) => {
         if (existing) yNotes.set(noteId, { ...existing, durationSteps });
     }, [activeId]);
 
+    const updateNote = useCallback((trackIndex: number, noteId: string, updates: Partial<PianoRollNote>) => {
+        if (!activeId) return;
+        const { ysequences: ys } = initSync();
+        const yseq = ys.get(activeId);
+        if (!yseq) return;
+        const yRolls = yseq.get("pianoRolls") as Y.Map<Y.Map<any>>;
+        const yNotes = yRolls?.get(String(trackIndex)) as Y.Map<any>;
+        const existing = yNotes?.get(noteId);
+        if (existing) yNotes.set(noteId, { ...existing, ...updates });
+    }, [activeId]);
+
     const copyPattern = useCallback((trackIndex: number) => {
         pianoRollClipboard = pianoRolls[trackIndex].map(n => ({
             pitch: n.pitch, startStep: n.startStep, durationSteps: n.durationSteps
@@ -368,6 +429,7 @@ export const usePianoRolls = (activeId: string) => {
         addNote,
         removeNote,
         updateNoteDuration,
+        updateNote,
         copyPattern,
         pastePattern,
         hasClipboard: pianoRollClipboard !== null && pianoRollClipboard.length > 0

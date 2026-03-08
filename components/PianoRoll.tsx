@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { PianoRollNote } from "@/lib/store";
+import { MousePointer2, Pencil } from "lucide-react";
 
 // ─── Pitch definitions ────────────────────────────────────────────────────────
 const BASS_PITCHES = [
@@ -18,7 +19,6 @@ function noteName(pitch: string) { return pitch.slice(0, -1); }
 function octave(pitch: string) { return pitch.slice(-1); }
 
 const DRUM_PITCHES = ["Hit"];
-const STEPS = 16;
 
 // ─── Track config ─────────────────────────────────────────────────────────────
 const TRACK_COLORS: Record<number, string> = {
@@ -35,12 +35,14 @@ type Props = {
     onAddNote: (note: Omit<PianoRollNote, "id">) => void;
     onRemoveNote: (id: string) => void;
     onUpdateDuration: (id: string, durationSteps: number) => void;
+    onUpdateNote: (id: string, updates: Partial<PianoRollNote>) => void;
     onCopy: () => void;
     onPaste: () => void;
     hasClipboard: boolean;
+    stepCount: number;
 };
 
-export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onRemoveNote, onUpdateDuration, onCopy, onPaste, hasClipboard }: Props) {
+export default function PianoRoll({ trackIndex, trackName, notes, stepCount, onAddNote, onRemoveNote, onUpdateDuration, onUpdateNote, onCopy, onPaste, hasClipboard }: Props) {
     const isDrum = trackIndex < 3;
     const pitches = isDrum ? DRUM_PITCHES : BASS_PITCHES;
     const color = TRACK_COLORS[trackIndex] ?? "#6366f1";
@@ -48,6 +50,9 @@ export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onR
     const scrollRef = useRef<HTMLDivElement>(null);
     const draggingNote = useRef<{ id: string; startX: number; origDuration: number } | null>(null);
     const [draggingId, setDraggingId] = useState<string | null>(null);
+
+    const [tool, setTool] = useState<"pointer" | "pen">("pen");
+    const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
 
     // Auto-scroll to C3 on mount
     useEffect(() => {
@@ -60,19 +65,36 @@ export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onR
         }
     }, [isDrum, pitches]);
 
+    // Handle delete key
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.key === "Delete" || e.key === "Backspace") && selectedNoteIds.size > 0) {
+                if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+                selectedNoteIds.forEach(id => onRemoveNote(id));
+                setSelectedNoteIds(new Set());
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [selectedNoteIds, onRemoveNote]);
+
     // Look up a note at a given pitch+step
     const noteAt = useCallback((pitch: string, step: number) => {
         return notes.find(n => n.pitch === pitch && step >= n.startStep && step < n.startStep + n.durationSteps);
     }, [notes]);
 
     const handleCellMouseDown = (pitch: string, step: number) => {
-        const existing = noteAt(pitch, step);
-        if (existing) {
-            if (existing.startStep === step) {
-                onRemoveNote(existing.id);
+        if (tool === "pen") {
+            const existing = noteAt(pitch, step);
+            if (existing) {
+                if (existing.startStep === step) {
+                    onRemoveNote(existing.id);
+                }
+            } else {
+                onAddNote({ pitch, startStep: step, durationSteps: 1 });
             }
         } else {
-            onAddNote({ pitch, startStep: step, durationSteps: 1 });
+            setSelectedNoteIds(new Set());
         }
     };
 
@@ -105,6 +127,23 @@ export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onR
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
                 <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{trackName} — Piano Roll</span>
 
+                <div className="flex items-center gap-1 ml-4 bg-zinc-950 p-1 rounded-md border border-zinc-800">
+                    <button
+                        onClick={() => setTool("pointer")}
+                        className={`p-1 rounded ${tool === "pointer" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                        title="Pointer Tool (V)"
+                    >
+                        <MousePointer2 size={14} />
+                    </button>
+                    <button
+                        onClick={() => setTool("pen")}
+                        className={`p-1 rounded ${tool === "pen" ? "bg-zinc-800 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                        title="Pen Tool (B)"
+                    >
+                        <Pencil size={14} />
+                    </button>
+                </div>
+
                 <div className="flex items-center gap-1 ml-4 border-l border-zinc-700 pl-4">
                     <button
                         onClick={onCopy}
@@ -122,13 +161,15 @@ export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onR
                     </button>
                 </div>
 
-                <span className="text-[10px] text-zinc-600 ml-auto hidden sm:block">click = add/remove · drag right edge = extend</span>
+                <span className="text-[10px] text-zinc-600 ml-auto hidden sm:block">
+                    {tool === "pen" ? "click = add/remove · drag right edge = extend" : "click = select · drag = move · backspace = delete"}
+                </span>
             </div>
 
             {/* Grid */}
-            <div ref={scrollRef} className="flex overflow-y-auto overflow-x-auto relative" style={{ maxHeight: isDrum ? "56px" : "220px" }}>
+            <div ref={scrollRef} className="flex overflow-y-auto overflow-x-auto relative" style={{ maxHeight: isDrum ? "56px" : "260px" }}>
                 {/* Piano keys column */}
-                <div className="flex flex-col shrink-0 border-r border-zinc-800 sticky left-0 z-20" style={{ width: isDrum ? 56 : 48 }}>
+                <div className="flex flex-col shrink-0 border-r border-zinc-800 sticky left-0 z-20 bg-zinc-950" style={{ width: isDrum ? 56 : 48 }}>
                     {pitches.map(pitch => {
                         const black = isDrum ? false : isBlack(pitch);
                         const name = isDrum ? pitch : noteName(pitch);
@@ -154,11 +195,11 @@ export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onR
                         return (
                             <div
                                 key={pitch}
-                                className={`flex border-b ${isC ? "border-zinc-600" : "border-zinc-800/40"} relative`}
-                                style={{ height: isDrum ? 32 : 20 }}
+                                className={`flex shrink-0 border-b ${isC ? "border-zinc-600" : "border-zinc-800/40"} relative`}
+                                style={{ height: isDrum ? 32 : 20, minHeight: isDrum ? 32 : 20 }}
                             >
                                 {/* Step column backgrounds */}
-                                {Array.from({ length: STEPS }, (_, s) => {
+                                {Array.from({ length: stepCount }, (_, s) => {
                                     const beatMarker = s % 4 === 0;
                                     return (
                                         <div
@@ -178,10 +219,11 @@ export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onR
                                     .map(note => {
                                         const left = note.startStep * 28;
                                         const width = note.durationSteps * 28 - 2;
+                                        const isSelected = selectedNoteIds.has(note.id);
                                         return (
                                             <div
                                                 key={note.id}
-                                                className="absolute top-0.5 rounded flex items-center justify-end overflow-hidden"
+                                                className={`absolute top-0.5 rounded flex items-center justify-end overflow-hidden ${isSelected ? "ring-2 ring-white" : ""}`}
                                                 style={{
                                                     left: left + 1,
                                                     width,
@@ -189,13 +231,45 @@ export default function PianoRoll({ trackIndex, trackName, notes, onAddNote, onR
                                                     backgroundColor: color,
                                                     opacity: 0.9,
                                                     boxShadow: `0 0 6px ${color}55`,
-                                                    zIndex: 10,
+                                                    zIndex: isSelected ? 20 : 10,
+                                                    cursor: tool === "pointer" ? "grab" : "default"
                                                 }}
                                                 onMouseDown={(e) => {
                                                     // If clicking on the note block itself, prevent toggling off
                                                     e.stopPropagation();
-                                                    // Clicking the note body removes it
-                                                    onRemoveNote(note.id);
+                                                    if (tool === "pen") {
+                                                        onRemoveNote(note.id);
+                                                    } else {
+                                                        const newSet = new Set(e.shiftKey ? selectedNoteIds : []);
+                                                        if (newSet.has(note.id)) newSet.delete(note.id);
+                                                        else newSet.add(note.id);
+                                                        setSelectedNoteIds(newSet);
+
+                                                        const startX = e.clientX;
+                                                        const startY = e.clientY;
+                                                        const startStep = note.startStep;
+                                                        const startPitchIdx = pitches.indexOf(note.pitch);
+
+                                                        const onMove = (ev: MouseEvent) => {
+                                                            const deltaSteps = Math.round((ev.clientX - startX) / 28);
+                                                            const deltaPitches = Math.round((ev.clientY - startY) / (isDrum ? 32 : 20));
+
+                                                            let newStep = startStep + deltaSteps;
+                                                            newStep = Math.max(0, Math.min(newStep, stepCount - note.durationSteps));
+
+                                                            let newPitchIdx = startPitchIdx + deltaPitches;
+                                                            newPitchIdx = Math.max(0, Math.min(newPitchIdx, pitches.length - 1));
+
+                                                            onUpdateNote(note.id, { startStep: newStep, pitch: pitches[newPitchIdx] });
+                                                        };
+
+                                                        const onUp = () => {
+                                                            window.removeEventListener("mousemove", onMove);
+                                                            window.removeEventListener("mouseup", onUp);
+                                                        };
+                                                        window.addEventListener("mousemove", onMove);
+                                                        window.addEventListener("mouseup", onUp);
+                                                    }
                                                 }}
                                             >
                                                 {/* Drag handle on right edge */}

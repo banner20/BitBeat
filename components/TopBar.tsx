@@ -1,7 +1,7 @@
 import { Play, Square, Settings } from "lucide-react";
 import { useState } from "react";
 
-export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, others, myPresence, sequenceName, onRename }: any) {
+export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, others, myPresence, sequenceName, onRename, onDoublePattern }: any) {
     const localUser = myPresence?.user;
     const [editingName, setEditingName] = useState(false);
     const [nameInput, setNameInput] = useState(sequenceName ?? "");
@@ -57,8 +57,8 @@ export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, others, myP
             <button
                 onClick={togglePlay}
                 className={`flex h-9 w-24 items-center justify-center gap-2 rounded-lg font-bold text-sm transition-all shrink-0 ${isPlaying
-                        ? "bg-red-500 hover:bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-                        : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                    ? "bg-red-500 hover:bg-red-600 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                    : "bg-emerald-500 hover:bg-emerald-600 text-white"
                     }`}
             >
                 {isPlaying ? <><Square size={14} fill="currentColor" /> Stop</> : <><Play size={14} fill="currentColor" /> Play</>}
@@ -76,6 +76,14 @@ export default function TopBar({ isPlaying, togglePlay, bpm, setBpm, others, myP
                 />
                 <span className="text-zinc-500 text-xs font-medium tracking-wide">BPM</span>
             </div>
+
+            <button
+                onClick={onDoublePattern}
+                className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-bold transition-all shrink-0 uppercase tracking-widest"
+                title="Double pattern length (x2)"
+            >
+                Double length (x2)
+            </button>
 
             {/* Invite */}
             <button
